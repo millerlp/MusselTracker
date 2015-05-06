@@ -1,0 +1,29 @@
+Copy the section between the hash marks below into a file called
+boards.txt that can be created in your Arduino/hardware folder. If that
+folder doesn't exist, go ahead and make it also. 
+
+##############################################################
+musseltracker2.name=Mussel Tracker2 (328P @ 8 MHz external, 3.3V ATmegaBOOT) 
+
+# I switched to stk500 protocol from 'arduino' protocol since it refused
+# to work for some reason the other way. 
+musseltracker2.upload.protocol=stk500
+musseltracker2.upload.maximum_size=30720
+musseltracker2.upload.speed=57600
+
+musseltracker2.bootloader.low_fuses=0xFF
+musseltracker2.bootloader.high_fuses=0xDA
+musseltracker2.bootloader.extended_fuses=0x05
+musseltracker2.bootloader.path=atmega
+musseltracker2.bootloader.file=ATmegaBOOT_168_atmega328_pro_8MHz.hex
+musseltracker2.bootloader.unlock_bits=0x3F
+musseltracker2.bootloader.lock_bits=0x0F
+
+musseltracker2.build.mcu=atmega328p
+musseltracker2.build.f_cpu=8000000L
+musseltracker2.build.core=arduino
+musseltracker2.build.variant=standard
+
+
+
+##############################################################
