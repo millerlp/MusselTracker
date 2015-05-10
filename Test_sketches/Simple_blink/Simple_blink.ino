@@ -23,5 +23,5 @@ void setup(void){
 void loop(void) {
 	digitalWrite(heartbeatLED, !digitalRead(heartbeatLED));
 	digitalWrite(errorLED, !digitalRead(errorLED));
-	delay(500);
+	delay(1000);
 }
