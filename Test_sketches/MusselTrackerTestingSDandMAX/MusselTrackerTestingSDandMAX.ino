@@ -1,6 +1,10 @@
 /* MusselTrackerTesting
   Code to test what portions of a newly assembled 
   Mussel Tracker v2 board are functional
+  
+  **Tested as working on 2015-06-11 on a 
+  Mussel Tracker v2 RevB circuit board with the
+  fix applied to supply VCC power to MAX31855 chip 2
 
 */
 
@@ -8,7 +12,7 @@
 #include <Wire.h>
 #include <SPI.h>
 #include "RTClib.h" // https://github.com/millerlp/RTClib
-
+#include <Adafruit_MAX31855.h> // https://github.com/adafruit/Adafruit-MAX31855-library
 
 
 #define ERRLED 5
@@ -19,7 +23,7 @@
 #define Serialtest // For testing serial output over FTDI adapter
 #define RTCtest // For testing DS3231 function (requires Serial to be working)
 #define SDtest	// For testing SD card slot function, requires Serial to be working
-
+#define MAXtest // For testing MAX31855 thermocouple 
 
 // Create real time clock object
 RTC_DS3231 RTC;
@@ -32,6 +36,14 @@ const byte chipSelect = 10; // define the Chip Select pin for SD card
 // Serial streams
 ArduinoOutStream cout(Serial);
 
+
+#define CS_MAX1 8 // Chip Select for MAX31855 #1
+#define CS_MAX2 9 // Chip Select for MAX31855 #2
+// Define MAX31855 objects, need 2 of them for the two separate chips
+Adafruit_MAX31855 thermocouple1(CS_MAX1);
+Adafruit_MAX31855 thermocouple2(CS_MAX2);
+double temp1 = 0; // hold output from MAX31855 #1
+double temp2 = 0; // hold output from MAX31855 #2
 
 void setup() {
 
@@ -46,6 +58,12 @@ void setup() {
   digitalWrite(ERRLED, LOW);
   pinMode(GREENLED,OUTPUT);
   digitalWrite(GREENLED, LOW);
+  
+	// Set the chip select pins as outputs
+	pinMode(CS_MAX1, OUTPUT);
+	digitalWrite(CS_MAX1, HIGH);
+	pinMode(CS_MAX2, OUTPUT);
+	digitalWrite(CS_MAX2, HIGH);
 
 #ifdef RTCtest 
   Wire.begin();
@@ -141,6 +159,15 @@ void loop() {
 #ifdef RTCtest  
   printTime(RTC.now());
   Serial.println();
+#endif
+
+#ifdef MAXtest
+	temp1 = thermocouple1.readInternal();
+	temp2 = thermocouple2.readInternal();
+	Serial.print("Internal temp1: ");
+	Serial.print(temp1);
+	Serial.print("C, temp2: ");
+	Serial.println(temp2);
 #endif
 
 } // end of main loop

@@ -1,16 +1,16 @@
 /*
-	Tested and functional on MusselTracker board v1
+	Tested and functional on MusselTracker board v2
 	uploaded via FTDI usb serial chip after burning a
 	copy of ATmegaBOOT_168_atmega328_pro_8MHz.hex to the
 	chip using the profile laid out in my boards.txt entry
-	"Mussel Tracker2 (328P @ 8 MHz external, 3.3V ATmegaBOOT)"
+	"Mussel Tracker v2 (8 MHz internal clock)"
 	
 	LPM 2015-05-05
 
 */
 
-const int heartbeatLED = 8;
-const int errorLED = 9;
+const int heartbeatLED = 6;
+const int errorLED = 5;
 
 void setup(void){
 	Serial.begin(57600);
