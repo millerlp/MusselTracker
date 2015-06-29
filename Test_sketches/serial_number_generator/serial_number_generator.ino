@@ -20,7 +20,7 @@
 
 
 // Placeholder serialnumber
-char serialnumber[]="SN06";
+char serialnumber[]="SN15";
 
 void setup(){
 	Serial.begin(57600);
