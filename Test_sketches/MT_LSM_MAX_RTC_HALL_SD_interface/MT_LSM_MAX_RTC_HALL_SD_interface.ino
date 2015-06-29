@@ -69,6 +69,7 @@ double temp2 = 0; // hold output from MAX31855 #2
 
 // Define LSM303 accelerometer/magnetometer objects
 LSM303 accelcompass1;
+LSM303 accelcompass2;
 
 //*************
 // Define a HallSensor object (from MusselTrackerv2.h library)
@@ -133,9 +134,16 @@ void setup() {
 	// use the arguments accelcompass1.init(LSM303::device_D, LSM303::sa0_high)
 	// to tell the initialization function to look for the correct device
 	if(!accelcompass1.init(LSM303::device_D, LSM303::sa0_high)){
-		Serial.print("Accel1 not found");
+		Serial.println("Accel1 not found");
+		delay(5);
 	}
 	accelcompass1.enableDefault();
+	
+	if(!accelcompass2.init(LSM303::device_D, LSM303::sa0_low)){
+		Serial.println("Accel2 not found");
+		delay(5);
+	}
+	accelcompass2.enableDefault();
   
 
 //*************************************************************
@@ -189,6 +197,8 @@ void loop() {
 		temp2Array[0] = thermocouple2.readCelsius();
 		// Take accelerometer readings
 		accelcompass1.read();
+		delay(5);
+		accelcompass2.read();
 		// Take hall effect readings
 		hallVal1 = sensor.readHall(HALL1);
 		hallVal2 = sensor.readHall(HALL2);
@@ -199,7 +209,11 @@ void loop() {
 		Serial.print(temp1Array[0]);
 		Serial.print("C, ");
 		Serial.print(temp2Array[0]);
-		Serial.println("C");
+		Serial.print("C ");
+		Serial.print(hallVal1);
+		Serial.print(F("\t"));
+		Serial.print(hallVal2);
+		Serial.print(F("\t"));
 		Serial.print(accelcompass1.a.x);
 		Serial.print(F("\t"));
 		Serial.print(accelcompass1.a.y);
@@ -212,9 +226,17 @@ void loop() {
 		Serial.print(F("\t"));
 		Serial.print(accelcompass1.m.z);
 		Serial.print(F("\t"));
-		Serial.print(hallVal1);
+		Serial.print(accelcompass2.a.x);
 		Serial.print(F("\t"));
-		Serial.print(hallVal2);
+		Serial.print(accelcompass2.a.y);
+		Serial.print(F("\t"));
+		Serial.print(accelcompass2.a.z);
+		Serial.print(F("\t"));
+		Serial.print(accelcompass2.m.x);
+		Serial.print(F("\t"));
+		Serial.print(accelcompass2.m.y);
+		Serial.print(F("\t"));
+		Serial.print(accelcompass2.m.z);
 		Serial.println();
 		
 		writeToSD();
