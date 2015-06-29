@@ -1,4 +1,4 @@
-#include "MusselTrackerv2.h"
+#include "MusselTrackerlib.h" // https://github.com/millerlp/MusselTrackerlib
 
 
 // Define a HallSensor object (from MusselTrackerv2.h library)

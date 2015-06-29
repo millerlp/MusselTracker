@@ -12,7 +12,7 @@
 #include <SPI.h>
 #include "RTClib.h" // https://github.com/millerlp/RTClib
 #include "Adafruit_MAX31855.h" // https://github.com/adafruit/Adafruit-MAX31855-library
-#include "MusselTrackerlib.h"
+#include "MusselTrackerlib.h" // https://github.com/millerlp/MusselTrackerlib
 
 void setup() {
   // put your setup code here, to run once:

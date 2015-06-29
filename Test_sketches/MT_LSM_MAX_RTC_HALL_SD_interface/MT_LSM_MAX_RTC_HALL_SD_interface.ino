@@ -15,7 +15,7 @@
 #include "RTClib.h" // https://github.com/millerlp/RTClib
 #include "Adafruit_MAX31855.h" // https://github.com/adafruit/Adafruit-MAX31855-library
 #include "LSM303.h" // https://github.com/pololu/lsm303-arduino
-#include "MusselTrackerv2.h"
+#include "MusselTrackerlib.h"	// https://github.com/millerlp/MusselTrackerlib
 
 #define ERRLED 5		// red error LED pin
 #define GREENLED 6		// green LED pin
