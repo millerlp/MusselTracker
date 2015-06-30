@@ -19,8 +19,8 @@
 
 
 
-// Placeholder serialnumber
-char serialnumber[]="SN15";
+// serial number to write to chip
+char serialnumber[]="SN03";
 
 void setup(){
 	Serial.begin(57600);
