@@ -4,6 +4,12 @@
 	to record thermocouple temperatures to the SD 
 	card. 
 
+	Error codes:
+	Red led flashes quickly: real time clock not set
+	Red + Green alternate quickly: SD card not found
+	Red + Green flash together at 1Hz: could not initialize file
+	Green LED on constantly: SD card failed during data collection
+	
 
 */
 
@@ -82,6 +88,9 @@ void setup() {
 	Wire.begin();
 	rtc.begin();
 	newtime = rtc.now();
+	delay(10);
+	printTimeSerial(rtc.now()); // function in MusselTrackerlib
+	Serial.println();
 	if (newtime.year() < 2015 | newtime.year() > 2035) {
 		// There is an error with the clock, halt everything
 		while(1){
@@ -91,9 +100,7 @@ void setup() {
 		}
 	}
 	
-	delay(10);
-	printTimeSerial(rtc.now()); // function in MusselTrackerlib
-	Serial.println();
+
 	
 	// Grab the serial number from the EEPROM memory
 	// The character array serialNumber was defined in the preamble
@@ -103,7 +110,8 @@ void setup() {
 		Serial.print(F("Read serial number: "));
 		Serial.println(serialNumber);
 	} else {
-		Serial.println(F("No valid serial number"));
+		Serial.print(F("No valid serial number: "));
+		Serial.println(serialNumber);
 	}
 
 	
@@ -287,7 +295,7 @@ void initCalibFileName(DateTime time1) {
 				while (1) {
 				digitalWrite(ERRLED, !digitalRead(ERRLED)); // Toggle error led 
 				digitalWrite(GREENLED, !digitalRead(GREENLED)); // Toggle indicator led 
-				delay(100);
+				delay(1000);
 				}
 			}
 			break; // Break out of the for loop when the
