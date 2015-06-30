@@ -43,7 +43,7 @@
 void setup() {
 	//****************************************************
 	// Enter the date and time values on the line below
-  int timeset[] = {2015,	6,	27,	 19,	23,	0};
+  int timeset[] = {2015,	6,	29,	 15,	59,	0};
 		//   year,  	mo,  	day,  hr,  	min,  sec
 	//****************************************************
   WIRE.begin();
