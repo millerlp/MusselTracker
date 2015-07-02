@@ -39,13 +39,24 @@ typedef enum STATE
   STATE_CALIB2, // user chooses to calibrate accel 2
   STATE_CALIB_WAIT, // waiting for user to signal mussel is positioned
   STATE_CALIB_ACTIVE, // taking calibration data, button press ends this
-  STATE_SHUTDOWN, // close data file, idle
+  STATE_CLOSE_FILE, // close data file, start new file
 } mainState_t;
+
+typedef enum DEBOUNCE_STATE
+{
+  DEBOUNCE_STATE_IDLE,
+  DEBOUNCE_STATE_CHECK,
+  DEBOUNCE_STATE_TIME
+} debounceState_t;
 
 
 // main state machine variable, this takes on the various
 // values defined for the STATE typedef above. 
 mainState_t mainState;
+
+// debounce state machine variable, this takes on the various
+// values defined for the DEBOUNCE_STATE typedef above.
+debounceState_t debounceState;
 
 // Create real time clock object
 RTC_DS3231 rtc;
@@ -59,7 +70,7 @@ byte oldday; 		// used to keep track of midnight transition
 // Create sd objects
 SdFat sd;
 SdFile logfile;  // for sd card, this is the file object to be written to
-SdFile setfile; // for sd card, this is the settings file to read from
+SdFile calibfile; // for sd card, this is the calibration file to write
 const byte chipSelect = 10; // define the Chip Select pin for SD card
 
 // Declare initial name for output files written to SD card
@@ -109,9 +120,15 @@ int hallVal2 = 0;
 
 byte loopCount = 0; // counter to keep track of data sampling loops
 byte fracSec = 0; // counter to keep track of fractional seconds
-long buttonTime = 0; // hold the time since the button was pressed
+DateTime buttonTime; // hold the time since the button was pressed
+DateTime chooseTime; // hold the time stamp when a waiting period starts
+DateTime calibEnterTime; // hold the time stamp when calibration mode is entered
+long buttonTime1; // hold the initial button press millis() value
+byte debounceTime = 20; // milliseconds to wait for debounce
 bool buttonFlag = false; // Flag to mark when button was pressed
-int buttonCalibEnter = 2000; // milliseconds to hold button1 to enter Calib mode
+byte mediumPressTime = 2; // seconds to hold button1 to register a medium press
+byte longPressTime = 5; // seconds to hold button1 to register a long press
+byte pressCount = 0; // counter for number of button presses
 
 void setup() {
 	// Set button1 as an input
@@ -161,8 +178,6 @@ void setup() {
 	Serial.begin(57600);
 	Serial.println("Hello");
 #endif
-  
-
 
 	// Initialize the real time clock DS3231M
 	Wire.begin();
@@ -174,13 +189,12 @@ void setup() {
 		// There is an error with the clock, halt everything
 		while(1){
 		// Flash the error led to notify the user
+		// This permanently halts execution, no data will be collected
 			digitalWrite(ERRLED, !digitalRead(ERRLED));
 			delay(100);
 		}	
 	}
-	delay(10);
 
-  
 //***************************************
 	// Initialize the accelerometer/compass
 	// For the LSM that has its sa0 pin pulled high (ACCEL1),
@@ -200,13 +214,10 @@ void setup() {
 	// the whole program without a timeout.
 	accelcompass1.setTimeout(20); 
 	accelcompass2.setTimeout(20);
-  
 
 //*************************************************************
 // SD card setup and read (assumes Serial output is functional already)
-
 	pinMode(chipSelect, OUTPUT);  // set chip select pin for SD card to output
-	
 	// Initialize the SD card object
 	// Try SPI_FULL_SPEED, or SPI_HALF_SPEED if full speed produces
 	// errors on a breadboard setup. 
@@ -223,11 +234,9 @@ void setup() {
                         digitalWrite(GREENLED, LOW);
 		}
 	}
-	newtime = rtc.now();
-	initFileName(newtime);
+	newtime = rtc.now(); // grab the current time
+	initFileName(newtime); // generate a file name
 	
-
-
 #ifdef ECHO_TO_SERIAL		
 		Serial.print("Writing to ");
 		Serial.println(filename);
@@ -240,148 +249,389 @@ void setup() {
 	oldtime = newtime; // store the current time value
 	oldday = oldtime.day(); // store the current day value
 	
-	mainState = STATE_DATA; // enter the main loop in data-taking state
+	mainState = STATE_DATA; // Start the main loop in data-taking state
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
+	// Always start the loop by checking the time
 	newtime = rtc.now(); // Grab the current time
-	
-	if (buttonFlag & digitalRead(BUTTON1)){
-		if (millis() > buttonTime + buttonCalibEnter) {
-			// If user held button down for more than 2 seconds
-			// then enter the beginning of calibration mode
-			buttonFlag = false; // reset flag
-			mainState = STATE_ENTER_CALIB;
-		}
+
+	// Begin loop by checking the debounceState to 
+	// handle any button presses
+	switch (debounceState) {
+		// debounceState should normally start off as 
+		// DEBOUNCE_STATE_IDLE until button1 is pressed,
+		// which causes the state to be set to 
+		// DEBOUNCE_STATE_CHECK
+		case DEBOUNCE_STATE_IDLE:
+			// Do nothing in this case
+		break;
 		
-	}
+		case DEBOUNCE_STATE_CHECK:
+			// If the debounce state has been set to 
+			// DEBOUNCE_STATE_CHECK by the buttonFunc interrupt,
+			// check if the button is still pressed
+			if (digitalRead(BUTTON1) == LOW) {
+				if (millis() > buttonTime1 + debounceTime) {
+					// If the button has been held long enough to 
+					// be a legit button press, switch to 
+					// DEBOUNCE_STATE_TIME to keep track of how long 
+					// the button is held
+					debounceState = DEBOUNCE_STATE_TIME;
+					buttonTime = rtc.now();
+				} else {
+					// If button is still pressed, but the debounce 
+					// time hasn't elapsed, remain in this state
+					debounceState = DEBOUNCE_STATE_CHECK;
+				}
+			} else {
+				// If button1 is high again when we hit this
+				// case in DEBOUNCE_STATE_CHECK, it was a false trigger
+				// Reset the debounceState
+				debounceState = DEBOUNCE_STATE_IDLE;
+				buttonFlag = false;
+				// Restart the button1 interrupt
+				attachInterrupt(0, buttonFunc, LOW);
+			}
+		break; // end of case DEBOUNCE_STATE_CHECK
+		
+		case DEBOUNCE_STATE_TIME:
+			if (digitalRead(BUTTON1) == HIGH) {
+				// If the user released the button, now check how
+				// long the button was depressed. This will determine
+				// which state the user wants to enter. 
+				
+				
+				DateTime checkTime = rtc.now(); // get the time
+				
+				if (checkTime.unixtime() < (buttonTime.unixtime() + mediumPressTime)) {
+					Serial.println(F("Short press registered"));
+					// User held button briefly, treat as a normal
+					// button press, which will be handled differently
+					// depending on which mainState the program is in.
+					buttonFlag = true;
+					
+				} else if (checkTime.unixtime() > (buttonTime.unixtime() + mediumPressTime) &
+					checkTime.unixtime() < (buttonTime.unixtime() + longPressTime)) {
+					// User held button1 long enough to enter calibration
+					// mode, but not long enough to enter close file mode
+					mainState = STATE_ENTER_CALIB;
+					
+					// Flash both LEDs 5 times to let user know we've entered
+					// calibration mode
+					for (byte i = 0; i < 5; i++){
+						digitalWrite(ERRLED, HIGH);
+						digitalWrite(GREENLED, HIGH);
+						delay(100);
+						digitalWrite(ERRLED, LOW);
+						digitalWrite(GREENLED, LOW);
+						delay(100);
+					}
+					
+					// Start a timer for entering Calib mode, to be used to give
+					// the user time to enter 1 button press or 2 to choose 
+					// which unit to calibrate
+					chooseTime = rtc.now();
 	
+				} else if (checkTime.unixtime() > (buttonTime.unixtime() + longPressTime)){
+					// User held button1 long enough to enter close file mode
+					mainState = STATE_CLOSE_FILE;
+				}
+				
+				// Now that the button press has been handled, return
+				// to DEBOUNCE_STATE_IDLE and await the next button press
+				debounceState = DEBOUNCE_STATE_IDLE;
+				// Restart the button1 interrupt now that the button
+				// has been released
+				attachInterrupt(0, buttonFunc, LOW);
+			} else {
+				// If button is still low (depressed), remain in 
+				// this DEBOUNCE_STATE_TIME
+				debounceState = DEBOUNCE_STATE_TIME;
+			}
+			
+		break; // end of case DEBOUNCE_STATE_TIME
+		
+	
+	} // end switch(debounceState)
+	
+	
+	//----------------------------------------------------------
 	switch (mainState) {
 	
-	case STATE_DATA:
-		// Check to see if the current seconds value
-		// is equal to oldtime.second(). If so, we
-		// are still in the same second. If not,
-		// the fracSec value should be reset to 0
-		// and oldtime updated to equal newtime.
-		if (oldtime.second() != newtime.second()) {
-			fracSec = 0; // reset fracSec
-			oldtime = newtime; // update oldtime
-			loopCount = 0; // reset loopCount				
-		}
-		
-		// Save current time to unixtimeArray
-		unixtimeArray[loopCount] = newtime.unixtime();
-		fracSecArray[loopCount] = fracSec;
-		// Take accelerometer readings
-		accelcompass1.read();
-		accelcompass2.read();
-		// If no timeout occurred, copy the data to the array
-		if (!accelcompass1.timeoutOccurred()){
-			accelcompass1Array[loopCount][0] = accelcompass1.a.x;
-			accelcompass1Array[loopCount][1] = accelcompass1.a.y;
-			accelcompass1Array[loopCount][2] = accelcompass1.a.z;
-			accelcompass1Array[loopCount][3] = accelcompass1.m.x;
-			accelcompass1Array[loopCount][4] = accelcompass1.m.y;
-			accelcompass1Array[loopCount][5] = accelcompass1.m.z;
-		} else {
-			// If a timeout occurred, write NANs to the array
-			for (byte j = 0; j < 6; j++){
-				accelcompass1Array[loopCount][j] = NAN;
+		case STATE_DATA:
+			// Check to see if the current seconds value
+			// is equal to oldtime.second(). If so, we
+			// are still in the same second. If not,
+			// the fracSec value should be reset to 0
+			// and oldtime updated to equal newtime.
+			if (oldtime.second() != newtime.second()) {
+				fracSec = 0; // reset fracSec
+				oldtime = newtime; // update oldtime
+				loopCount = 0; // reset loopCount				
 			}
-		}
-		
-		if (!accelcompass2.timeoutOccurred()){
-			// If no timeout occurred, copy the data to the array
-			accelcompass2Array[loopCount][0] = accelcompass2.a.x;
-			accelcompass2Array[loopCount][1] = accelcompass2.a.y;
-			accelcompass2Array[loopCount][2] = accelcompass2.a.z;
-			accelcompass2Array[loopCount][3] = accelcompass2.m.x;
-			accelcompass2Array[loopCount][4] = accelcompass2.m.y;
-			accelcompass2Array[loopCount][5] = accelcompass2.m.z;
-		} else {
-			for (byte j = 0; j < 6; j++){
-				// If a timeout occurred, write NANs to the array
-				accelcompass2Array[loopCount][j] = NAN;
-			}
-		}
-
-		if (fracSec == 0) {
-			temp1 = thermocouple1.readCelsius();
-			temp2 = thermocouple2.readCelsius();
-			// Take hall effect readings
-			hallVal1 = hallsensor.readHall(HALL1);
-			hallVal2 = hallsensor.readHall(HALL2);
-		}
-		
-		// Now if loopCount is equal to the value in SAMPLES_PER_SECOND
-		// (minus 1 for zero-based counting), then write out the contents
-		// of the sample data arrays to the SD card. This should write data
-		// every second
-		if (loopCount >= (SAMPLES_PER_SECOND - 1)) {
-			// Check to see if a new day has started. If so, open a new file
-			// with the initFileName() function
-			if (oldtime.day() != oldday) {
-				// Close existing file
-				logfile.close();
-				// Generate a new output filename based on the new date
-				initFileName(oldtime);
-				// Update oldday value to match the new day
-				oldday = oldtime.day();
-			}
-			// Call the writeToSD function to output the data array contents
-			// to the SD card
-			writeToSD();
-#ifdef ECHO_TO_SERIAL
-		printTimeSerial(oldtime);
-		Serial.print(F("\tTemp1: "));
-		Serial.print(temp1);
-		Serial.print(F("C, Hall1: "));
-		Serial.print(hallVal1);
-		Serial.print(F("\tAccel1:\t"));
-		for (byte j = 0; j < 6; j++) {
-			Serial.print(accelcompass1Array[0][j]);
-			Serial.print(F("\t"));
-		}
-		Serial.print(F("Temp2: "));
-		Serial.print(temp2);
-		Serial.print(F("C, Hall2: "));
-		Serial.print(hallVal2);
-		Serial.print(F("\tAccel2:\t"));
-		for (byte j = 0; j < 6; j++) {
-			Serial.print(accelcompass2Array[0][j]);
-			Serial.print(F("\t"));
-		}
-		delay(5);
-		Serial.println();
-		delay(10);
-#endif				
-		} // end of if (loopCount >= (SAMPLES_PER_SECOND - 1))
-		
-		// Increment loopCount after writing all the sample data to
-		// the arrays
-		loopCount++; 
 			
-		// Increment the fractional seconds count
-#if SAMPLES_PER_SECOND == 4
-		fracSec = fracSec + 25;
-#endif
+			// Save current time to unixtimeArray
+			unixtimeArray[loopCount] = newtime.unixtime();
+			fracSecArray[loopCount] = fracSec;
+			// Take accelerometer readings
+			accelcompass1.read();
+			accelcompass2.read();
+			// If no timeout occurred, copy the data to the array
+			if (!accelcompass1.timeoutOccurred()){
+				accelcompass1Array[loopCount][0] = accelcompass1.a.x;
+				accelcompass1Array[loopCount][1] = accelcompass1.a.y;
+				accelcompass1Array[loopCount][2] = accelcompass1.a.z;
+				accelcompass1Array[loopCount][3] = accelcompass1.m.x;
+				accelcompass1Array[loopCount][4] = accelcompass1.m.y;
+				accelcompass1Array[loopCount][5] = accelcompass1.m.z;
+			} else {
+				// If a timeout occurred, write NANs to the array
+				for (byte j = 0; j < 6; j++){
+					accelcompass1Array[loopCount][j] = NAN;
+				}
+			}
+			
+			if (!accelcompass2.timeoutOccurred()){
+				// If no timeout occurred, copy the data to the array
+				accelcompass2Array[loopCount][0] = accelcompass2.a.x;
+				accelcompass2Array[loopCount][1] = accelcompass2.a.y;
+				accelcompass2Array[loopCount][2] = accelcompass2.a.z;
+				accelcompass2Array[loopCount][3] = accelcompass2.m.x;
+				accelcompass2Array[loopCount][4] = accelcompass2.m.y;
+				accelcompass2Array[loopCount][5] = accelcompass2.m.z;
+			} else {
+				for (byte j = 0; j < 6; j++){
+					// If a timeout occurred, write NANs to the array
+					accelcompass2Array[loopCount][j] = NAN;
+				}
+			}
 
-#if SAMPLES_PER_SECOND == 2
-		fracSec = fracSec + 50;
-#endif
-		goToSleep(); // function in MusselTrackerlib.h	
-		// After awaking, this case should end and the main loop
-		// should start again. 
-		mainState = STATE_DATA;
-	break; // end of case STATE_DATA
+			if (fracSec == 0) {
+				temp1 = thermocouple1.readCelsius();
+				temp2 = thermocouple2.readCelsius();
+				// Take hall effect readings
+				hallVal1 = hallsensor.readHall(HALL1);
+				hallVal2 = hallsensor.readHall(HALL2);
+			}
+			
+			// Now if loopCount is equal to the value in SAMPLES_PER_SECOND
+			// (minus 1 for zero-based counting), then write out the contents
+			// of the sample data arrays to the SD card. This should write data
+			// every second
+			if (loopCount >= (SAMPLES_PER_SECOND - 1)) {
+				// Check to see if a new day has started. If so, open a new file
+				// with the initFileName() function
+				if (oldtime.day() != oldday) {
+					// Close existing file
+					logfile.close();
+					// Generate a new output filename based on the new date
+					initFileName(oldtime);
+					// Update oldday value to match the new day
+					oldday = oldtime.day();
+				}
+				// Call the writeToSD function to output the data array contents
+				// to the SD card
+				writeToSD();
+	#ifdef ECHO_TO_SERIAL
+			printTimeSerial(oldtime);
+			Serial.print(F("\tTemp1: "));
+			Serial.print(temp1);
+			Serial.print(F("C, Hall1: "));
+			Serial.print(hallVal1);
+			Serial.print(F("\tAccel1:\t"));
+			for (byte j = 0; j < 6; j++) {
+				Serial.print(accelcompass1Array[0][j]);
+				Serial.print(F("\t"));
+			}
+			Serial.print(F("Temp2: "));
+			Serial.print(temp2);
+			Serial.print(F("C, Hall2: "));
+			Serial.print(hallVal2);
+			Serial.print(F("\tAccel2:\t"));
+			for (byte j = 0; j < 6; j++) {
+				Serial.print(accelcompass2Array[0][j]);
+				Serial.print(F("\t"));
+			}
+			delay(5);
+			Serial.println();
+			delay(10);
+	#endif				
+			} // end of if (loopCount >= (SAMPLES_PER_SECOND - 1))
+			
+			// Increment loopCount after writing all the sample data to
+			// the arrays
+			loopCount++; 
+				
+			// Increment the fractional seconds count
+	#if SAMPLES_PER_SECOND == 4
+			fracSec = fracSec + 25;
+	#endif
+
+	#if SAMPLES_PER_SECOND == 2
+			fracSec = fracSec + 50;
+	#endif
+			goToSleep(); // function in MusselTrackerlib.h	
+			// After awaking, this case should end and the main loop
+			// should start again. 
+			mainState = STATE_DATA;
+		break; // end of case STATE_DATA
+		//------------------------------------------------------------------
+		case STATE_ENTER_CALIB:
+		
+			// Read a time value
+			calibEnterTime = rtc.now();
 	
-	case STATE_ENTER_CALIB:
-		digitalWrite(ERRLED, HIGH);
-		digitalWrite(GREENLED, HIGH);
-		while(1){}
-	break; // end of STATE_CALIB_ENTER
+			if (calibEnterTime.unixtime() < (chooseTime.unixtime() + longPressTime)){
+				// If longPressTime has not elapsed, add any new button presses to the
+				// the pressCount value
+				if (buttonFlag) {
+					pressCount++;
+					// If the user pressed the button, reset chooseTime to
+					// give them extra time to press the button again. 
+					chooseTime = calibEnterTime;
+					buttonFlag = false; // reset buttonFlag
+					Serial.print("Button press ");
+					Serial.println(pressCount);
+					if (pressCount > 2) {
+						pressCount = 0;
+					}	
+
+					// Flash the green led 1 or 2 times to show current count
+					if (pressCount > 0) {
+						for (byte i = 0; i < pressCount; i++){
+							digitalWrite(GREENLED, HIGH);
+							delay(250);
+							digitalWrite(GREENLED, LOW);
+							delay(250);
+						}
+					} else if (pressCount == 0) {
+						// Flash red led to show that we haven't 
+						// got a useful choice
+						digitalWrite(ERRLED, HIGH);
+						delay(250);
+						digitalWrite(ERRLED, LOW);
+						delay(250);
+					}
+				}
+				mainState = STATE_ENTER_CALIB; // remain in this state
+			} else if (calibEnterTime.unixtime() >= (chooseTime.unixtime() + longPressTime)){
+				switch (pressCount) {
+					case 0:
+						// if the user didn't press the button again, return
+						// to normal data taking mode
+						mainState = STATE_DATA; 
+						Serial.println("returning to data state");
+						digitalWrite(ERRLED, HIGH);
+						digitalWrite(GREENLED, HIGH);
+						delay(500);
+						digitalWrite(ERRLED, LOW);
+						digitalWrite(GREENLED, LOW);
+						
+					break;
+					case 1:
+						// If the user pressed one time, we'll calibrate accel1
+						mainState = STATE_CALIB_WAIT;
+						pressCount = 1;
+						Serial.println("Calib accel 1");
+						digitalWrite(ERRLED, HIGH);
+						digitalWrite(GREENLED, HIGH);
+						delay(500);
+						digitalWrite(ERRLED, LOW);
+						digitalWrite(GREENLED, LOW);
+						delay(500);
+						for (byte i = 0; i < pressCount; i++){
+							digitalWrite(GREENLED, HIGH);
+							delay(250);
+							digitalWrite(GREENLED, LOW);
+							delay(250);
+						}
+					break;
+					case 2:
+						// If the user pressed two times, we'll calibrate accel2
+						mainState = STATE_CALIB_WAIT;
+						pressCount = 2;
+						Serial.println("Calib accel 2");
+						digitalWrite(ERRLED, HIGH);
+						digitalWrite(GREENLED, HIGH);
+						delay(500);
+						digitalWrite(ERRLED, LOW);
+						digitalWrite(GREENLED, LOW);
+						delay(500);
+						for (byte i = 0; i < pressCount; i++){
+							digitalWrite(GREENLED, HIGH);
+							delay(250);
+							digitalWrite(GREENLED, LOW);
+							delay(250);
+						}						
+					break;
+				} 
+			}
+			// Need to let the user decide which unit to calibrate here
+			// keep count of button presses, within the time set by longPressTime
+
+			
+			
+
+		break; // end of STATE_CALIB_ENTER
+		
+		case STATE_CALIB_WAIT:
+			// Now we wait for the user to get situated and press the 
+			// button one more time to begin taking data
+			// The green led will pulse on and off at 1Hz while waiting
+			if (newtime.second() != calibEnterTime.second() ) {
+				calibEnterTime = newtime; // reset calibEnterTime
+				digitalWrite(GREENLED, !digitalRead(GREENLED));
+			}
+			
+			// If the user finally presses the button, enter the active
+			// calibration state
+			if (buttonFlag) {
+				mainState = STATE_CALIB_ACTIVE;
+				buttonFlag = false; // reset buttonFlag
+				// Create a data output file
+				// initCalibFile(newtime);
+			}
+			
+		break;
+		
+		case STATE_CALIB_ACTIVE:
+			// Create a calibration file and write accelerometer/compass data
+			// to it at a higher speed. 
+			
+			// TODO: reopen calibfile, write data to it at high speed
+			
+			
+			// The user can press the button1 again to end calibration mode
+/* 			if (buttonFlag) {
+				buttonFlag = false;
+				calibfile.close();
+				initFileName(newtime); // open a new data file
+				mainState = STATE_DATA; // return to STATE_DATA
+				
+			} */
+			
+		break;
+		
+		//------------------------------------------------------------------
+		case STATE_CLOSE_FILE:
+			logfile.close(); // make sure the data file is closed and saved.
+			
+			// Briefly flash the green led to show that program is in
+			// shutdown mode
+			for (byte i = 0; i < 5; i++){
+				digitalWrite(ERRLED, HIGH);
+				delay(100);
+				digitalWrite(ERRLED, LOW);
+				delay(100);
+			}
+			initFileName(rtc.now()); // open a new output file
+#ifdef ECHO_TO_SERIAL
+			Serial.print(F("Writing to "));
+			Serial.println(newtime);
+#endif		
+			mainState = STATE_DATA; // return to normal data collection
+		break; // end of case STATE_FILE_CLOSE
 	
 	} // End of switch statement
 	
@@ -398,15 +648,16 @@ void loop() {
 // interrupt will also reawaken it. This is used for the goToSleep() function
 ISR(TIMER2_OVF_vect) {
 	// nothing needs to happen here, this interrupt firing should 
-	// be awakening the AVR
+	// just awaken the AVR
 }
 
 //------------------------------------------------------------------------------
 // buttonFunc
 void buttonFunc(void){
 	detachInterrupt(0); // turn off the interrupt
-	buttonTime = millis(); // grab the current elapsed time
-	buttonFlag = true; // button was pressed, this is now true
+	buttonTime1 = millis(); // grab the current elapsed time
+	debounceState = DEBOUNCE_STATE_CHECK; // switch to new debounce state
+
 	// Execution will now return to wherever it was interrupted, and this
 	// interrupt will still be disabled. 
 }
@@ -528,6 +779,143 @@ void initFileName(DateTime time1) {
 	logfile.close(); // force the data to be written to the file by closing it
 
 } // end of initFileName function
+
+
+//------------------------------------------------------------------------------
+// initCalibFile - a function to create a filename for the SD card based
+// The character array 'filenameCalib' was defined as a global array 
+// at the top of the sketch in the form filenameCalib[] = "CAL0_YYYYMMDD_HHMM_00_SN00.csv";
+/* void initCalibFile(DateTime time1) {
+	
+	if (pressCount == 1) {
+		filenameCalib[3] = "1";
+	} else if (pressCount == 2) {
+		filenameCalib[3] = "2";
+	}
+	
+	char buf[5];
+	// integer to ascii function itoa(), supplied with numeric year value,
+	// a buffer to hold output, and the base for the conversion (base 10 here)
+	itoa(time1.year(), buf, 10);
+	// copy the ascii year into the filenameCalib array
+	byte count = 0;
+	for (byte i = 5; i < 9; i++){
+		filenameCalib[i] = buf[count];
+		count++;
+	}
+	// Insert the month value
+	if (time1.month() < 10) {
+		filenameCalib[9] = '0';
+		filenameCalib[10] = time1.month() + '0';
+	} else if (time1.month() >= 10) {
+		filenameCalib[9] = (time1.month() / 10) + '0';
+		filenameCalib[10] = (time1.month() % 10) + '0';
+	}
+	// Insert the day value
+	if (time1.day() < 10) {
+		filenameCalib[11] = '0';
+		filenameCalib[12] = time1.day() + '0';
+	} else if (time1.day() >= 10) {
+		filenameCalib[11] = (time1.day() / 10) + '0';
+		filenameCalib[12] = (time1.day() % 10) + '0';
+	}
+	// Insert an underscore between date and time
+	filenameCalib[13] = '_';
+	// Insert the hour
+	if (time1.hour() < 10) {
+		filenameCalib[14] = '0';
+		filenameCalib[15] = time1.hour() + '0';
+	} else if (time1.hour() >= 10) {
+		filenameCalib[14] = (time1.hour() / 10) + '0';
+		filenameCalib[15] = (time1.hour() % 10) + '0';
+	}
+	// Insert minutes
+		if (time1.minute() < 10) {
+		filenameCalib[16] = '0';
+		filenameCalib[17] = time1.minute() + '0';
+	} else if (time1.minute() >= 10) {
+		filenameCalib[16] = (time1.minute() / 10) + '0';
+		filenameCalib[17] = (time1.minute() % 10) + '0';
+	}
+	// Insert another underscore after time
+	filenameCalib[18] = '_';
+	
+	//"YYYYMMDD_HHMM_00_SN00.csv"
+	
+	// If there is a valid serialnumber, insert it into 
+	// the file name in positions 17-20. 
+	if (serialValid) {
+		byte serCount = 0;
+		for (byte i = 22; i < 26; i++){
+			filenameCalib[i] = serialNumber[serCount];
+			serCount++;
+		}
+	}
+	
+		
+	// Next change the counter on the end of the filenameCalib
+	// (digits 14+15) to increment count for files generated on
+	// the same day. This shouldn't come into play
+	// during a normal data run, but can be useful when 
+	// troubleshooting.
+	for (uint8_t i = 0; i < 100; i++) {
+		filenameCalib[19] = i / 10 + '0';
+		filenameCalib[20] = i % 10 + '0';
+		
+		if (!sd.exists(filenameCalib)) {
+			// when sd.exists() returns false, this block
+			// of code will be executed to open the file
+			if (!calibfile.open(filenameCalib, O_RDWR | O_CREAT | O_AT_END)) {
+				// If there is an error opening the file, notify the
+				// user. Otherwise, the file is open and ready for writing
+				// Turn both indicator LEDs on to indicate a failure
+				// to create the log file
+				digitalWrite(ERRLED, !digitalRead(ERRLED)); // Toggle error led 
+				digitalWrite(GREENLED, !digitalRead(GREENLED)); // Toggle indicator led 
+				delay(5);
+			}
+			break; // Break out of the for loop when the
+			// statement if(!logfile.exists())
+			// is finally false (i.e. you found a new file name to use).
+		} // end of if(!sd.exists())
+	} // end of file-naming for loop
+	
+	
+	// Write 1st header line to SD file based on mission info
+	if (serialValid) {
+		calibfile.print(serialNumber);
+	}
+	calibfile.print(F(","));
+	// Write starting time in the next column
+	printTimeToSD(calibfile, rtc.now());
+	calibfile.print(F(","));
+	// Write accelerometer number in next column
+	if (pressCount == 1) {
+		calibfile.print("Accel 1");
+	} else if (pressCount == 2) {
+		calibfile.print("Accel 2");
+	}
+	calibfile.print(F(","));
+	// Print a bunch of commas in the first row to mark the 
+	// additional data columns
+	for (byte i = 0; i < 3; i++){
+		calibfile.print(F(","));
+	}
+	
+	calibfile.println(); // move to 2nd row of file
+	// write a 2nd header line to the SD file
+	calibfile.println(F("millis,a.x,a.y,a.z,m.x,m.y,m.z"));
+	// Update the file's creation date, modify date, and access date.
+	calibfile.timestamp(T_CREATE, time1.year(), time1.month(), time1.day(), 
+			time1.hour(), time1.minute(), time1.second());
+	calibfile.timestamp(T_WRITE, time1.year(), time1.month(), time1.day(), 
+			time1.hour(), time1.minute(), time1.second());
+	calibfile.timestamp(T_ACCESS, time1.year(), time1.month(), time1.day(), 
+			time1.hour(), time1.minute(), time1.second());
+	calibfile.close(); // force the data to be written to the file by closing it
+
+} // end of initFileName function */
+
 
 
 //--------------------------------------------------------------
