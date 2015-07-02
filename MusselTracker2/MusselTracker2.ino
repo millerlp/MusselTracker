@@ -110,11 +110,15 @@ int hallVal2 = 0;
 byte loopCount = 0; // counter to keep track of data sampling loops
 byte fracSec = 0; // counter to keep track of fractional seconds
 long buttonTime = 0; // hold the time since the button was pressed
-
+bool buttonFlag = false; // Flag to mark when button was pressed
+int buttonCalibEnter = 2000; // milliseconds to hold button1 to enter Calib mode
 
 void setup() {
 	// Set button1 as an input
 	pinMode(BUTTON1, INPUT_PULLUP);
+	// Register an interrupt on INT0, attached to button1
+	// which will call buttonFunc when the button is pressed.
+	attachInterrupt(0, buttonFunc, LOW);
 	// Set up the LEDs as output
 	pinMode(ERRLED,OUTPUT);
 	digitalWrite(ERRLED, LOW);
@@ -243,6 +247,16 @@ void loop() {
   // put your main code here, to run repeatedly:
 	newtime = rtc.now(); // Grab the current time
 	
+	if (buttonFlag & digitalRead(BUTTON1)){
+		if (millis() > buttonTime + buttonCalibEnter) {
+			// If user held button down for more than 2 seconds
+			// then enter the beginning of calibration mode
+			buttonFlag = false; // reset flag
+			mainState = STATE_ENTER_CALIB;
+		}
+		
+	}
+	
 	switch (mainState) {
 	
 	case STATE_DATA:
@@ -362,6 +376,13 @@ void loop() {
 		// should start again. 
 		mainState = STATE_DATA;
 	break; // end of case STATE_DATA
+	
+	case STATE_ENTER_CALIB:
+		digitalWrite(ERRLED, HIGH);
+		digitalWrite(GREENLED, HIGH);
+		while(1){}
+	break; // end of STATE_CALIB_ENTER
+	
 	} // End of switch statement
 	
 
@@ -380,7 +401,15 @@ ISR(TIMER2_OVF_vect) {
 	// be awakening the AVR
 }
 
-
+//------------------------------------------------------------------------------
+// buttonFunc
+void buttonFunc(void){
+	detachInterrupt(0); // turn off the interrupt
+	buttonTime = millis(); // grab the current elapsed time
+	buttonFlag = true; // button was pressed, this is now true
+	// Execution will now return to wherever it was interrupted, and this
+	// interrupt will still be disabled. 
+}
 
 //------------------------------------------------------------------------------
 // initFileName - a function to create a filename for the SD card based
