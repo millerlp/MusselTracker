@@ -6,6 +6,10 @@
   from two MAX31855 chips, from LSM303D accelerometers
   and Allegro A1391 hall effect sensors, 
   and save the data to a SD card.
+  
+  Error codes:
+  Red flashes quickly (10Hz): real time clock not set
+  Red + Green alternate rapidly: SD card not found
 
 */
 
@@ -26,7 +30,7 @@
 
 
 // Create real time clock object
-RTC_DS3231 RTC;
+RTC_DS3231 rtc;
 DateTime newtime; // used to track time in main loop
 DateTime oldtime; // used to track time in main loop
 #define SAMPLETIME 1 // seconds between samples
@@ -112,8 +116,10 @@ void setup() {
 
 	// Initialize the real time clock DS3231M
   Wire.begin();
-  RTC.begin();
-  newtime = RTC.now();
+  rtc.begin();
+  newtime = rtc.now();
+  printTimeSerial(rtc.now());
+  Serial.println();
   if (newtime.year() < 2015 | newtime.year() > 2035) {
 	// There is an error with the clock, halt everything
 	while(1){
@@ -125,25 +131,27 @@ void setup() {
   }
 
   delay(10);
-  printTimeSerial(RTC.now());
-  Serial.println();
+
   
 //***************************************
 // Initialize the accelerometer/compass
 	// For the LSM that has its sa0 pin pulled high (ACCEL1),
 	// use the arguments accelcompass1.init(LSM303::device_D, LSM303::sa0_high)
 	// to tell the initialization function to look for the correct device
-	if(!accelcompass1.init(LSM303::device_D, LSM303::sa0_high)){
-		Serial.println("Accel1 not found");
-		delay(5);
-	}
+	// When a device type and sa0 pin state are defined, the init() function 
+	// will always return true.
+	accelcompass1.init(LSM303::device_D, LSM303::sa0_high);
 	accelcompass1.enableDefault();
-	
-	if(!accelcompass2.init(LSM303::device_D, LSM303::sa0_low)){
-		Serial.println("Accel2 not found");
-		delay(5);
-	}
+	// Use sa0_low argument for the other accelerometer that has its address 
+	// pin set to ground. 
+	accelcompass2.init(LSM303::device_D, LSM303::sa0_low);
 	accelcompass2.enableDefault();
+	
+	// You must set a timeout to handle cases where the sensor dies
+	// or otherwise can't be found on the I2C bus, which would hang
+	// the whole program without a timeout.
+	accelcompass1.setTimeout(20); 
+	accelcompass2.setTimeout(20);
   
 
 //*************************************************************
@@ -167,7 +175,7 @@ void setup() {
                         digitalWrite(GREENLED, LOW);
 		}
 	}
-	newtime = RTC.now();
+	newtime = rtc.now();
 	initFileName(newtime);
 	
 
@@ -178,12 +186,12 @@ void setup() {
 #endif
 
 	
-	oldtime = RTC.now();
+	oldtime = rtc.now();
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
-	newtime = RTC.now(); // Grab the current time
+	newtime = rtc.now(); // Grab the current time
 	// Serial.println(newtime.unixtime());
 	// printTime(newtime); Serial.println();
 	if (newtime.unixtime() >= oldtime.unixtime() + 1) {
@@ -197,8 +205,14 @@ void loop() {
 		temp2Array[0] = thermocouple2.readCelsius();
 		// Take accelerometer readings
 		accelcompass1.read();
+		if (accelcompass1.timeoutOccurred()){
+			Serial.print("\tNo accel1\t");
+		}
 		delay(5);
 		accelcompass2.read();
+		if (accelcompass1.timeoutOccurred()){
+			Serial.print("\tNo accel2\t");
+		}
 		// Take hall effect readings
 		hallVal1 = sensor.readHall(HALL1);
 		hallVal2 = sensor.readHall(HALL2);
