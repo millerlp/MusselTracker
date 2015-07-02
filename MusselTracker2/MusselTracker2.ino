@@ -258,7 +258,7 @@ void loop() {
 
 	// Begin loop by checking the debounceState to 
 	// handle any button presses
-	switch (debounceState) {
+ 	switch (debounceState) {
 		// debounceState should normally start off as 
 		// DEBOUNCE_STATE_IDLE until button1 is pressed,
 		// which causes the state to be set to 
@@ -354,7 +354,7 @@ void loop() {
 		
 	
 	} // end switch(debounceState)
-	
+	 
 	
 	//----------------------------------------------------------
 	switch (mainState) {
@@ -575,7 +575,7 @@ void loop() {
 
 		break; // end of STATE_CALIB_ENTER
 		
-		case STATE_CALIB_WAIT:
+ 		case STATE_CALIB_WAIT:
 			// Now we wait for the user to get situated and press the 
 			// button one more time to begin taking data
 			// The green led will pulse on and off at 1Hz while waiting
@@ -603,18 +603,18 @@ void loop() {
 			
 			
 			// The user can press the button1 again to end calibration mode
-/* 			if (buttonFlag) {
+ 			if (buttonFlag) {
 				buttonFlag = false;
 				calibfile.close();
 				initFileName(newtime); // open a new data file
 				mainState = STATE_DATA; // return to STATE_DATA
 				
-			} */
+			} 
 			
-		break;
+		break; 
 		
 		//------------------------------------------------------------------
-		case STATE_CLOSE_FILE:
+ 		case STATE_CLOSE_FILE:
 			logfile.close(); // make sure the data file is closed and saved.
 			
 			// Briefly flash the green led to show that program is in
@@ -628,13 +628,14 @@ void loop() {
 			initFileName(rtc.now()); // open a new output file
 #ifdef ECHO_TO_SERIAL
 			Serial.print(F("Writing to "));
-			Serial.println(newtime);
+			printTimeSerial(newtime);
+			Serial.println();
 #endif		
 			mainState = STATE_DATA; // return to normal data collection
 		break; // end of case STATE_FILE_CLOSE
-	
+ 
 	} // End of switch statement
-	
+
 
 } // end of main loop
 
@@ -656,7 +657,7 @@ ISR(TIMER2_OVF_vect) {
 void buttonFunc(void){
 	detachInterrupt(0); // turn off the interrupt
 	buttonTime1 = millis(); // grab the current elapsed time
-	debounceState = DEBOUNCE_STATE_CHECK; // switch to new debounce state
+	// debounceState = DEBOUNCE_STATE_CHECK; // switch to new debounce state
 
 	// Execution will now return to wherever it was interrupted, and this
 	// interrupt will still be disabled. 
