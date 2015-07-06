@@ -125,7 +125,7 @@ DateTime chooseTime; // hold the time stamp when a waiting period starts
 DateTime calibEnterTime; // hold the time stamp when calibration mode is entered
 long buttonTime1; // hold the initial button press millis() value
 byte debounceTime = 20; // milliseconds to wait for debounce
-bool buttonFlag = false; // Flag to mark when button was pressed
+volatile bool buttonFlag = false; // Flag to mark when button was pressed
 byte mediumPressTime = 2; // seconds to hold button1 to register a medium press
 byte longPressTime = 5; // seconds to hold button1 to register a long press
 byte pressCount = 0; // counter for number of button presses
