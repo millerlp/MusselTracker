@@ -23,10 +23,16 @@
 		to exit calibration mode and return to normal data collection mode. 
 		The red and green LEDs will flash 5 times to denote the end of 
 		calibration mode. 
+		
+	Closing a data file safely:
+	1. Hold button 1 down for at least 7 seconds, then release it
+	2. The green LED should flash rapidly 15 times. The previous data
+		file will be closed safely, and a new file will be started in
+		normal data collection mode. 
   
-  Error codes:
-  Red flashes quickly (10Hz): real time clock not set
-  Red + Green alternate rapidly: SD card not found
+	Error codes:
+		Red flashes quickly (10Hz): Real Time Clock not set
+		Red + Green alternate rapidly: SD card not found
 
 */
 
@@ -39,13 +45,18 @@
 #include "LSM303.h" // https://github.com/pololu/lsm303-arduino
 #include "MusselTrackerlib.h"	// https://github.com/millerlp/MusselTrackerlib
 
+//******************************
+// Data collection rate, enter a value here of 4, 2, or 1 (samples per second)
+#define SAMPLES_PER_SECOND 4 // number of samples taken per second (4, 2, or 1)
+//******************************
 
 #define ERRLED 5		// Red error LED pin
 #define GREENLED 6		// Green LED pin
 #define BUTTON1 2 		// BUTTON1 on INT0, pin PD2
+
 // Comment out the following line to remove parts of the
 // test code from functioning. 
-#define ECHO_TO_SERIAL // For testing serial output over FTDI adapter
+// #define ECHO_TO_SERIAL // For testing serial output over FTDI adapter
 
 
 // ***** TYPE DEFINITIONS *****
@@ -67,7 +78,6 @@ typedef enum DEBOUNCE_STATE
   DEBOUNCE_STATE_TIME
 } debounceState_t;
 
-
 // main state machine variable, this takes on the various
 // values defined for the STATE typedef above. 
 mainState_t mainState;
@@ -76,40 +86,19 @@ mainState_t mainState;
 // values defined for the DEBOUNCE_STATE typedef above.
 volatile debounceState_t debounceState;
 
+//*************
 // Create real time clock object
 RTC_DS3231 rtc;
-DateTime newtime; // used to track time in main loop
-DateTime oldtime; // used to track time in main loop
-byte oldday; 		// used to keep track of midnight transition
-#define SAMPLETIME 1 // seconds between samples
 
-#define SAMPLES_PER_SECOND 4 // number of samples taken per second (4, 2, or 1)
 
-// Create sd objects
+//*************
+// Create sd card objects
 SdFat sd;
 SdFile logfile;  // for sd card, this is the file object to be written to
 SdFile calibfile; // for sd card, this is the calibration file to write
 const byte chipSelect = 10; // define the Chip Select pin for SD card
 
-// Declare initial name for output files written to SD card
-// The newer versions of SdFat library support long filenames
-char filename[] = "YYYYMMDD_HHMM_00_SN00.csv";
-// Define initial name of calibration file for accelerometers
-char filenameCalib[] = "CAL0_YYYYMMDD_HHMM_00_SN00.csv";
-// Placeholder serialNumber
-char serialNumber[]="SN00";
-// Define a flag to show whether the serialNumber value is real or just zeros
-bool serialValid = false;
-
-// Declare data arrays
-uint32_t unixtimeArray[SAMPLES_PER_SECOND]; // store unixtime values temporarily
-byte fracSecArray[SAMPLES_PER_SECOND]; // store fracSec values temporarily
-int accelcompass1Array[SAMPLES_PER_SECOND][6]; // store accel/compass1 values
-int accelcompass2Array[SAMPLES_PER_SECOND][6]; // store accel/compass2 values
-
-
-
-
+//************
 // Define MAX31855 objects, need 2 of them for the two separate chips
 #define CS_MAX1 8 // Chip Select for MAX31855 #1
 #define CS_MAX2 9 // Chip Select for MAX31855 #2
@@ -118,6 +107,7 @@ Adafruit_MAX31855 thermocouple2(CS_MAX2);
 double temp1 = 0; // hold output from MAX31855 #1
 double temp2 = 0; // hold output from MAX31855 #2
 
+//*************
 // Define LSM303 accelerometer/magnetometer objects
 LSM303 accelcompass1;
 LSM303 accelcompass2;
@@ -135,19 +125,39 @@ int hallVal2 = 0;
 // must always specify that in the hall effect sensor
 // function calls. 
 
+// Declare data arrays
+uint32_t unixtimeArray[SAMPLES_PER_SECOND]; // store unixtime values temporarily
+byte fracSecArray[SAMPLES_PER_SECOND]; // store fracSec values temporarily
+int accelcompass1Array[SAMPLES_PER_SECOND][6]; // store accel/compass1 values
+int accelcompass2Array[SAMPLES_PER_SECOND][6]; // store accel/compass2 values
+
+// Declare initial name for output files written to SD card
+char filename[] = "YYYYMMDD_HHMM_00_SN00.csv";
+// Define initial name of calibration file for accelerometers
+char filenameCalib[] = "CAL0_YYYYMMDD_HHMM_00_SN00.csv";
+// Placeholder serialNumber
+char serialNumber[] = "SN00";
+// Define a flag to show whether the serialNumber value is real or just zeros
+bool serialValid = false;
 
 byte loopCount = 0; // counter to keep track of data sampling loops
 byte fracSec = 0; // counter to keep track of fractional seconds
+DateTime newtime; // used to track time in main loop
+DateTime oldtime; // used to track time in main loop
+byte oldday; 		// used to keep track of midnight transition
 DateTime buttonTime; // hold the time since the button was pressed
 DateTime chooseTime; // hold the time stamp when a waiting period starts
 DateTime calibEnterTime; // hold the time stamp when calibration mode is entered
-volatile long buttonTime1; // hold the initial button press millis() value
+volatile unsigned long buttonTime1; // hold the initial button press millis() value
 byte debounceTime = 20; // milliseconds to wait for debounce
 volatile bool buttonFlag = false; // Flag to mark when button was pressed
 byte mediumPressTime = 2; // seconds to hold button1 to register a medium press
 byte longPressTime = 5; // seconds to hold button1 to register a long press
 byte pressCount = 0; // counter for number of button presses
+unsigned long prevMillis;	// counter for faster operations
+unsigned long newMillis;	// counter for faster operations
 
+//---------------- setup loop ------------------------------------------------
 void setup() {
 	// Set button1 as an input
 	pinMode(BUTTON1, INPUT_PULLUP);
@@ -166,7 +176,14 @@ void setup() {
 	pinMode(CS_MAX2, OUTPUT);
 	digitalWrite(CS_MAX2, HIGH);
 
-
+	pinMode(4, OUTPUT);
+	pinMode(3, OUTPUT);
+	
+	Serial.begin(57600);
+#ifdef ECHO_TO_SERIAL  
+	Serial.println("Hello");
+#endif
+	
 	// Grab the serial number from the EEPROM memory
 	// The character array serialNumber was defined in the preamble
 	EEPROM.get(0, serialNumber);
@@ -180,9 +197,9 @@ void setup() {
 #ifdef ECHO_TO_SERIAL	
 		Serial.print(F("No valid serial number: "));
 		Serial.println(serialNumber);
+		serialValid = false;
 #endif		
 	}
-
 
 	// Initialize the Allegro A1393 hall effect sensors
 	// There is only one hallsensor object, but you feed it
@@ -191,17 +208,11 @@ void setup() {
 	hallsensor.begin(HALL1);
 	hallsensor.begin(HALL2);
 
-
-#ifdef ECHO_TO_SERIAL  
-	Serial.begin(57600);
-	Serial.println("Hello");
-#endif
-
 	// Initialize the real time clock DS3231M
-	Wire.begin();
-	rtc.begin();
-	newtime = rtc.now();
-	printTimeSerial(rtc.now());
+	Wire.begin();	// Start the I2C library with default options
+	rtc.begin();	// Start the rtc object with default options
+	newtime = rtc.now(); // read a time from the real time clock
+	printTimeSerial(rtc.now()); // print time to serial monitor
 	Serial.println();
 	if (newtime.year() < 2015 | newtime.year() > 2035) {
 		// There is an error with the clock, halt everything
@@ -226,7 +237,6 @@ void setup() {
 	// pin set to ground. 
 	accelcompass2.init(LSM303::device_D, LSM303::sa0_low);
 	accelcompass2.enableDefault();
-	
 	// You must set a timeout to handle cases where the sensor dies
 	// or otherwise can't be found on the I2C bus, which would hang
 	// the whole program without a timeout.
@@ -273,7 +283,8 @@ void setup() {
 void loop() {
 	// Always start the loop by checking the time
 	newtime = rtc.now(); // Grab the current time
-
+	
+	
 	//-------------------------------------------------------------
 	// Begin loop by checking the debounceState to 
 	// handle any button presses
@@ -371,12 +382,14 @@ void loop() {
 			
 		break; // end of case DEBOUNCE_STATE_TIME	
 	} // end switch(debounceState)
-	 
+	
 	
 	//----------------------------------------------------------
 	switch (mainState) {
 		//*****************************************************
 		case STATE_DATA:
+			bitSet(PIND, 4); // toggle off
+		
 			// Check to see if the current seconds value
 			// is equal to oldtime.second(). If so, we
 			// are still in the same second. If not,
@@ -403,9 +416,9 @@ void loop() {
 				accelcompass1Array[loopCount][4] = accelcompass1.m.y;
 				accelcompass1Array[loopCount][5] = accelcompass1.m.z;
 			} else {
-				// If a timeout occurred, write NANs to the array
+				// If a timeout occurred, write zeros to the array
 				for (byte j = 0; j < 6; j++){
-					accelcompass1Array[loopCount][j] = NAN;
+					accelcompass1Array[loopCount][j] = 0;
 				}
 			}
 			
@@ -419,12 +432,16 @@ void loop() {
 				accelcompass2Array[loopCount][5] = accelcompass2.m.z;
 			} else {
 				for (byte j = 0; j < 6; j++){
-					// If a timeout occurred, write NANs to the array
-					accelcompass2Array[loopCount][j] = NAN;
+					// If a timeout occurred, write zeros to the array
+					accelcompass2Array[loopCount][j] = 0;
 				}
 			}
 
 			if (fracSec == 0) {
+				// We only read the thermocouples and hall effect sensors
+				// once per second regardless of the main sampling rate,
+				// since these won't change fast enough to warrant reading
+				// them (and waking them) more than once per second.
 				temp1 = thermocouple1.readCelsius();
 				temp2 = thermocouple2.readCelsius();
 				// Take hall effect readings
@@ -450,30 +467,31 @@ void loop() {
 				// Call the writeToSD function to output the data array contents
 				// to the SD card
 				writeToSD();
-	#ifdef ECHO_TO_SERIAL
-			printTimeSerial(oldtime);
-			Serial.print(F("\tTemp1: "));
-			Serial.print(temp1);
-			Serial.print(F("C, Hall1: "));
-			Serial.print(hallVal1);
-			Serial.print(F("\tAccel1:\t"));
-			for (byte j = 0; j < 6; j++) {
-				Serial.print(accelcompass1Array[0][j]);
-				Serial.print(F("\t"));
-			}
-			Serial.print(F("Temp2: "));
-			Serial.print(temp2);
-			Serial.print(F("C, Hall2: "));
-			Serial.print(hallVal2);
-			Serial.print(F("\tAccel2:\t"));
-			for (byte j = 0; j < 6; j++) {
-				Serial.print(accelcompass2Array[0][j]);
-				Serial.print(F("\t"));
-			}
-			delay(5);
-			Serial.println();
-			delay(10);
-	#endif				
+				
+#ifdef ECHO_TO_SERIAL
+				printTimeSerial(oldtime);
+				Serial.print(F("\tTemp1: "));
+				Serial.print(temp1);
+				Serial.print(F("C, Hall1: "));
+				Serial.print(hallVal1);
+				Serial.print(F("\tAccel1:\t"));
+				for (byte j = 0; j < 6; j++) {
+					Serial.print(accelcompass1Array[0][j]);
+					Serial.print(F("\t"));
+				}
+				Serial.print(F("Temp2: "));
+				Serial.print(temp2);
+				Serial.print(F("C, Hall2: "));
+				Serial.print(hallVal2);
+				Serial.print(F("\tAccel2:\t"));
+				for (byte j = 0; j < 6; j++) {
+					Serial.print(accelcompass2Array[0][j]);
+					Serial.print(F("\t"));
+				}
+				delay(1);
+				Serial.println();
+
+#endif				
 			} // end of if (loopCount >= (SAMPLES_PER_SECOND - 1))
 			
 			// Increment loopCount after writing all the sample data to
@@ -488,7 +506,11 @@ void loop() {
 	#if SAMPLES_PER_SECOND == 2
 			fracSec = fracSec + 50;
 	#endif
+			bitSet(PIND, 4); // toggle off
+			delay(1);
+			bitSet(PIND, 3); // toggle on
 			goToSleep(); // function in MusselTrackerlib.h	
+			bitSet(PIND, 3); // toggle off
 			// After awaking, this case should end and the main loop
 			// should start again. 
 			mainState = STATE_DATA;
@@ -508,11 +530,12 @@ void loop() {
 					// give them extra time to press the button again. 
 					chooseTime = calibEnterTime;
 					buttonFlag = false; // reset buttonFlag
-
+					// If more than 2 button presses are registered, cycle
+					// back around to zero.
 					if (pressCount > 2) {
 						pressCount = 0;
 					}
-					Serial.print(F("Button press"));
+					Serial.print(F("Button press "));
 					Serial.println(pressCount);
 
 					// Flash the green led 1 or 2 times to show current count
@@ -524,7 +547,7 @@ void loop() {
 							delay(200);
 						}
 					} else if (pressCount == 0) {
-						// Flash red led to show that we haven't 
+						// Flash red LED to show that we haven't 
 						// got a useful choice
 						digitalWrite(ERRLED, HIGH);
 						delay(250);
@@ -538,7 +561,7 @@ void loop() {
 				// the user's choice based on the value in pressCount
 				switch (pressCount) {
 					case 0:
-						// if the user didn't press the button again, return
+						// If the user didn't press the button again, return
 						// to normal data taking mode
 						mainState = STATE_DATA; 
 						Serial.println(F("Returning to data state"));
@@ -546,11 +569,10 @@ void loop() {
 						digitalWrite(GREENLED, HIGH);
 						delay(500);
 						digitalWrite(ERRLED, LOW);
-						digitalWrite(GREENLED, LOW);
-						
+						digitalWrite(GREENLED, LOW);	
 					break;
 					case 1:
-						// If the user pressed one time, we'll calibrate accel1
+						// If the user pressed one time, we'll calibrate accel 1
 						mainState = STATE_CALIB_WAIT;
 						pressCount = 1;
 						Serial.println(F("Calib accel 1"));
@@ -569,7 +591,7 @@ void loop() {
 						delay(1000);
 					break;
 					case 2:
-						// If the user pressed two times, we'll calibrate accel2
+						// If the user pressed two times, we'll calibrate accel 2
 						mainState = STATE_CALIB_WAIT;
 						pressCount = 2;
 						Serial.println(F("Calib accel 2"));
@@ -612,72 +634,86 @@ void loop() {
 				initCalibFile(newtime);
 				Serial.print(F("Writing to "));
 				Serial.println(filenameCalib);
+				if (pressCount == 1){
+					enableCalibMode(accelcompass1);
+				} else if (pressCount == 2) {
+					enableCalibMode(accelcompass2);
+				}
 			}
 			
 		break;
 		//*****************************************************
 		case STATE_CALIB_ACTIVE:
-			// Create a calibration file and write accelerometer/compass data
-			// to it at a higher speed. 
-			
-			// TODO: reopen calibfile, write data to it at high speed
+			// Write accelerometer/compass data to the calibration file
+			newMillis = millis(); // get current millis value
+			// If 10 or more milliseconds have elapsed, take a new
+			// reading from the accel/compass
+			if (newMillis >= prevMillis + 10) {
+				prevMillis = newMillis; // update millis
 				// Reopen logfile. If opening fails, notify the user
-			if (!calibfile.isOpen()) {
-				if (!calibfile.open(filenameCalib, O_RDWR | O_CREAT | O_AT_END)) {
-					digitalWrite(ERRLED, HIGH); // turn on error LED
+				if (!calibfile.isOpen()) {
+					if (!calibfile.open(filenameCalib, O_RDWR | O_CREAT | O_AT_END)) {
+						digitalWrite(ERRLED, HIGH); // turn on error LED
+					}
 				}
+				// Choose which accel to sample based on pressCount value
+				switch (pressCount) {
+					case 1:
+						digitalWrite(GREENLED, HIGH);
+						accelcompass1.read();
+						if (!accelcompass1.timeoutOccurred()){
+							calibfile.print(millis()); // print millis count
+							calibfile.print(F(","));
+							calibfile.print(accelcompass1.a.x);
+							calibfile.print(F(","));
+							calibfile.print(accelcompass1.a.y);
+							calibfile.print(F(","));
+							calibfile.print(accelcompass1.a.z);
+							calibfile.print(F(","));
+							calibfile.print(accelcompass1.m.x);
+							calibfile.print(F(","));
+							calibfile.print(accelcompass1.m.y);
+							calibfile.print(F(","));
+							calibfile.println(accelcompass1.m.z);
+						}
+						digitalWrite(GREENLED, LOW);
+					break;
+					
+					case 2:
+						digitalWrite(GREENLED, HIGH);
+						accelcompass2.read();
+						if (!accelcompass2.timeoutOccurred()){
+							calibfile.print(millis()); // print millis count
+							calibfile.print(F(","));
+							calibfile.print(accelcompass2.a.x);
+							calibfile.print(F(","));
+							calibfile.print(accelcompass2.a.y);
+							calibfile.print(F(","));
+							calibfile.print(accelcompass2.a.z);
+							calibfile.print(F(","));
+							calibfile.print(accelcompass2.m.x);
+							calibfile.print(F(","));
+							calibfile.print(accelcompass2.m.y);
+							calibfile.print(F(","));
+							calibfile.println(accelcompass2.m.z);
+						}
+						digitalWrite(GREENLED, LOW);
+					break;
+				} // end of switch (pressCount)
 			}
-			// Choose which accel to sample based on pressCount value
-			switch (pressCount) {
-				case 1:
-					digitalWrite(GREENLED, HIGH);
-					accelcompass1.read();
-					if (!accelcompass1.timeoutOccurred()){
-						calibfile.print(millis()); // print millis count
-						calibfile.print(F(","));
-						calibfile.print(accelcompass1.a.x);
-						calibfile.print(F(","));
-						calibfile.print(accelcompass1.a.y);
-						calibfile.print(F(","));
-						calibfile.print(accelcompass1.a.z);
-						calibfile.print(F(","));
-						calibfile.print(accelcompass1.m.x);
-						calibfile.print(F(","));
-						calibfile.print(accelcompass1.m.y);
-						calibfile.print(F(","));
-						calibfile.println(accelcompass1.m.z);
-					}
-					digitalWrite(GREENLED, LOW);
-				break;
-				
-				case 2:
-					digitalWrite(GREENLED, HIGH);
-					accelcompass2.read();
-					if (!accelcompass2.timeoutOccurred()){
-						calibfile.print(millis()); // print millis count
-						calibfile.print(F(","));
-						calibfile.print(accelcompass2.a.x);
-						calibfile.print(F(","));
-						calibfile.print(accelcompass2.a.y);
-						calibfile.print(F(","));
-						calibfile.print(accelcompass2.a.z);
-						calibfile.print(F(","));
-						calibfile.print(accelcompass2.m.x);
-						calibfile.print(F(","));
-						calibfile.print(accelcompass2.m.y);
-						calibfile.print(F(","));
-						calibfile.println(accelcompass2.m.z);
-					}
-					digitalWrite(GREENLED, LOW);
-				break;
-			} // end of switch (pressCount)
-			
 			
 			// The user can press button1 again to end calibration mode
  			if (buttonFlag) {
 				buttonFlag = false;
 				calibfile.close(); // close and save the calib file
 				Serial.println(F("Saving calib file"));
+				// Set the accel/magnetometer back to normal slow
+				// mode (50Hz accel with antialias filter, 6.25Hz magnetometer)
+				if (pressCount == 1){
+					accelNormalMode(accelcompass1);
+				} else if (pressCount == 2) {
+					accelNormalMode(accelcompass2);
+				}
 				initFileName(newtime); // open a new data file
 				mainState = STATE_DATA; // return to STATE_DATA
 				// Flash both LEDs 5 times to let user know we've exited
@@ -696,7 +732,9 @@ void loop() {
 		
 		//*****************************************************
  		case STATE_CLOSE_FILE:
-			logfile.close(); // make sure the data file is closed and saved.
+			// If user held button 1 down for at least 6 seconds, they want 
+			// to close the current data file and open a new one. 
+			logfile.close(); // Make sure the data file is closed and saved.
 			
 			// Briefly flash the green led to show that program 
 			// has closed the data file and started a new one. 
@@ -706,13 +744,13 @@ void loop() {
 				digitalWrite(GREENLED, LOW);
 				delay(100);
 			}
-			initFileName(rtc.now()); // open a new output file
+			initFileName( rtc.now() ); // Open a new output file
 #ifdef ECHO_TO_SERIAL
 			Serial.print(F("Writing to "));
 			printTimeSerial(newtime);
 			Serial.println();
 #endif		
-			mainState = STATE_DATA; // return to normal data collection
+			mainState = STATE_DATA; // Return to normal data collection
 		break; // end of case STATE_FILE_CLOSE
 	} // End of switch (mainState) statement
 } // end of main loop
@@ -730,18 +768,17 @@ ISR(TIMER2_OVF_vect) {
 	// just awaken the AVR
 }
 
-//------------------------------------------------------------------------------
+//--------------- buttonFunc --------------------------------------------------
 // buttonFunc
 void buttonFunc(void){
-	detachInterrupt(0); // turn off the interrupt
-	buttonTime1 = millis(); // grab the current elapsed time
-	debounceState = DEBOUNCE_STATE_CHECK; // switch to new debounce state
-
+	detachInterrupt(0); // Turn off the interrupt
+	buttonTime1 = millis(); // Grab the current elapsed time
+	debounceState = DEBOUNCE_STATE_CHECK; // Switch to new debounce state
 	// Execution will now return to wherever it was interrupted, and this
 	// interrupt will still be disabled. 
 }
 
-//------------------------------------------------------------------------------
+//-------------- initFileName --------------------------------------------------
 // initFileName - a function to create a filename for the SD card based
 // on the 4-digit year, month, day, hour, minutes and a 2-digit counter. 
 // The character array 'filename' was defined as a global array 
@@ -792,9 +829,6 @@ void initFileName(DateTime time1) {
 	}
 	// Insert another underscore after time
 	filename[13] = '_';
-	
-	//"YYYYMMDD_HHMM_00_SN00.csv"
-	
 	// If there is a valid serialnumber, insert it into 
 	// the file name in positions 17-20. 
 	if (serialValid) {
@@ -804,8 +838,6 @@ void initFileName(DateTime time1) {
 			serCount++;
 		}
 	}
-	
-		
 	// Next change the counter on the end of the filename
 	// (digits 14+15) to increment count for files generated on
 	// the same day. This shouldn't come into play
@@ -832,9 +864,6 @@ void initFileName(DateTime time1) {
 			// is finally false (i.e. you found a new file name to use).
 		} // end of if(!sd.exists())
 	} // end of file-naming for loop
-	
-	// Serial.println(filename);
-	
 	// Write 1st header line to SD file based on mission info
 	if (serialValid) {
 		logfile.print(serialNumber);
@@ -844,7 +873,6 @@ void initFileName(DateTime time1) {
 	for (byte i = 0; i < 18; i++){
 		logfile.print(F(","));
 	}
-	
 	logfile.println(); // move to 2nd row of file
 	// write a 2nd header line to the SD file
 	logfile.println(F("POSIXt,DateTime,fractional.Second,a1.x,a1.y,a1.z,m1.x,m1.y,m1.z,Temp1,Hall1,a2.x,a2.y,a2.z,m2.x,m2.y,m2.z,Temp2,Hall2"));
@@ -856,25 +884,22 @@ void initFileName(DateTime time1) {
 	logfile.timestamp(T_ACCESS, time1.year(), time1.month(), time1.day(), 
 			time1.hour(), time1.minute(), time1.second());
 	logfile.close(); // force the data to be written to the file by closing it
-
 } // end of initFileName function
 
 
-//------------------------------------------------------------------------------
+//-------------- initCalibFile ---------------------------------------------------
 // initCalibFile - a function to create a filename for the SD card based
 // The character array 'filenameCalib' was defined as a global array 
 // at the top of the sketch in the form: 
 // filenameCalib[] = "CAL0_YYYYMMDD_HHMM_00_SN00.csv";
 void initCalibFile(DateTime time1) {
-	
 	if (pressCount == 1) {
 		filenameCalib[3] = '1';
 	} else if (pressCount == 2) {
 		filenameCalib[3] = '2';
 	}
-	
 	char buf[5];
-	// integer to ascii function itoa(), supplied with numeric year value,
+	// Integer to ascii function itoa(), supplied with numeric year value,
 	// a buffer to hold output, and the base for the conversion (base 10 here)
 	itoa(time1.year(), buf, 10);
 	// copy the ascii year into the filenameCalib array
@@ -976,9 +1001,8 @@ void initCalibFile(DateTime time1) {
 	for (byte i = 0; i < 3; i++){
 		calibfile.print(F(","));
 	}
-	
-	calibfile.println(); // move to 2nd row of file
-	// write a 2nd header line to the SD file
+	calibfile.println(); // Move to 2nd row of file
+	// Write a 2nd header line to the SD file
 	calibfile.println(F("millis,a.x,a.y,a.z,m.x,m.y,m.z"));
 	// Update the file's creation date, modify date, and access date.
 	calibfile.timestamp(T_CREATE, time1.year(), time1.month(), time1.day(), 
@@ -987,21 +1011,22 @@ void initCalibFile(DateTime time1) {
 			time1.hour(), time1.minute(), time1.second());
 	calibfile.timestamp(T_ACCESS, time1.year(), time1.month(), time1.day(), 
 			time1.hour(), time1.minute(), time1.second());
-	calibfile.close(); // force the data to be written to the file by closing it
-
+	calibfile.close(); // Force the data to be written to the file by closing it
 } // end of initCalibFile function 
 
 
 
-//--------------------------------------------------------------
+//------------- writeToSD -----------------------------------------------
 // writeToSD function. This formats the available data in the
 // data arrays and writes them to the SD card file in a
 // comma-separated value format.
 void writeToSD (void) {
 
-	// Flash the green LED every 30 seconds to show data is being collected
+	// Flash the green LED every 10 seconds to show data is being collected
 	if (newtime.second() % 10 == 0) {
 		digitalWrite(GREENLED,HIGH);
+		delay(5);
+		digitalWrite(GREENLED,LOW);
 	}
 	// Reopen logfile. If opening fails, notify the user
 	if (!logfile.isOpen()) {
@@ -1018,7 +1043,7 @@ void writeToSD (void) {
 		logfile.print(F(","));
 		printTimeToSD(logfile, unixtimeArray[i]); // human-readable date
 		logfile.print(F(","));
-		logfile.print(fracSecArray[i], DEC); // fractional seconds value (milliseconds)
+		logfile.print(fracSecArray[i], DEC); // fractional seconds value
 		logfile.print(F(","));
 		// Print accel/compass readings for mussel #1
 		for (byte j = 0; j < 6; j++){
@@ -1056,15 +1081,65 @@ void writeToSD (void) {
 	  if (t1.second() % 30 == 0){
 	    logfile.timestamp(T_WRITE, t1.year(),t1.month(),t1.day(),t1.hour(),t1.minute(),t1.second());
 	  }
-	
-	// Turn the green LED off if it is on.
-	if (digitalRead(GREENLED)) {
-		digitalWrite(GREENLED,LOW);
-	}
 }
 
 
-//--------------------------------------------------------------
+//----------- enableCalibMode ----------------------------------
+// enableCalibMode function
+// Requires the LSM303 library
+void enableCalibMode(LSM303& accelcompass){
+	// Uses the writeReg function from the LSM303 library to 
+	// write to the various registers on a LSM303D and change
+	// the device's settings. 
+	
+	// CTRL0: leave set to 0b0000 0000 to disable FIFO buffer
+	accelcompass.writeReg(0x1F, 0x00);
+	// CTRL1: set accel data rate to 400Hz
+	// 0b1000 0111 = 0x87
+	accelcompass.writeReg(0x20, 0x87);
+	// CTRL2: turn on 362Hz antialias filter for accelerometer
+	// and leave accel full-scale range and +/- 4g
+	// 0b1000 1000 = 0x88
+	accelcompass.writeReg(0x21, 0x88);
+	// CTRL6: set magnetic scale to +/- 4 gauss
+	// 0b0010 0000 = 0x20
+	accelcompass.writeReg(0x25, 0x20);
+	// CTRL7: set magnetic data low-power mode to 0 so that changes
+	// to CTRL5 have an effect
+	// 0b0010 0000 = 0x20
+	accelcompass.writeReg(0x26, 0x20);
+	// CTRL5: set magnetometer data rate to 100Hz, high resolution mode
+	// 0b0111 0100 = 0x74
+	accelcompass.writeReg(0x24, 0x74);
+}
+
+//----------- accelNormalMode -------------------------------
+void accelNormalMode(LSM303& accelcompass){
+	// Set the LSM303D accel/magnetometer to normal data-collection
+	// settings.
+	// CTRL0: leave set to 0b0000 0000 to disable FIFO buffer
+	accelcompass.writeReg(0x1F, 0x00);
+	// CTRL1: set accel data rate to 50Hz
+	// 0b0101 0111 = 0x57
+	accelcompass.writeReg(0x20, 0x57);	
+	// CTRL2: turn on 50Hz antialias filter for accelerometer
+	// and leave accel full-scale range and +/- 4g
+	// 0b1100 1000 = 0xC8
+	accelcompass.writeReg(0x21, 0xC8);
+	// CTRL7: set magnetic data low-power mode to 0 so that changes
+	// to CTRL5 have an effect
+	// 0b0010 0000 = 0x20
+	accelcompass.writeReg(0x26, 0x20);
+	// CTRL6: set magnetic scale to +/- 4 gauss
+	// 0b0010 0000 = 0x20
+	accelcompass.writeReg(0x25, 0x20);
+	// CTRL5: set magnetometer data rate to 100Hz, high resolution mode
+	// 0b0110 0100 = 0x64
+	accelcompass.writeReg(0x24, 0x64);
+}
+
+
+//---------- startTIMER2 ----------------------------------------------------
 // startTIMER2 function
 // Starts the 32.768kHz clock signal being fed into XTAL1 to drive the
 // quarter-second interrupts used during data-collecting periods. 
