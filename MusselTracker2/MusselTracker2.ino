@@ -79,7 +79,7 @@
 
 // Interval to flash green LED during normal data collection
 // For every 10 seconds, enter 10, for every 30 seconds, enter 30
-#define PULSE_INTERVAL 30
+#define PULSE_INTERVAL 5
 
 // ***** TYPE DEFINITIONS *****
 typedef enum STATE
@@ -161,7 +161,7 @@ char filenameCalib[] = "CAL0_YYYYMMDD_HHMM_00_SN00.csv";
 char serialNumber[] = "SN00";
 // Define a flag to show whether the serialNumber value is real or just zeros
 bool serialValid = false;
-
+byte mcusr = 0; 	// variable to hold MCU status register codes
 byte loopCount = 0; // counter to keep track of data sampling loops
 byte fracSec = 0; // counter to keep track of fractional seconds
 DateTime newtime; // used to track time in main loop
@@ -212,9 +212,22 @@ void setup() {
 	pinMode(4, OUTPUT);
 	pinMode(3, OUTPUT);
 	
+	// Brownout detection process.
+	mcusr = MCUSR; // Grab the contents of the MCUSR
+	MCUSR = 0; // Reset MCUSR to 0 so it is ready for the next go-around.
+	// Call the checkMCUSR function to check reason for this restart.
+	// If only a brownout is detected, this function will put the board
+	// into a permanent sleep that can only be reset with the reset 
+	// button or a complete power-down.
+	checkMCUSR(mcusr, ERRLED);  // In the MusselTrackerlib library
+								
 	Serial.begin(57600);
 #ifdef ECHO_TO_SERIAL  
-	Serial.println("Hello");
+	Serial.println(F("Hello"));
+	Serial.print(F("MCUSR contents: "));
+	printBits(mcusr);
+	Serial.println();
+	
 #endif
 	
 	// Grab the serial number from the EEPROM memory
@@ -597,7 +610,7 @@ void loop() {
 				// program, then this section will send updates of the
 				// sensor values once per second.
 				printTimeSerial(oldtime);
-				Serial.print(F("\tTemp1: "));
+				Serial.print(F(" Temp1: "));
 				Serial.print(temp1);
 				Serial.print(F("C, Hall1: "));
 				Serial.print(hallVal1);
@@ -617,6 +630,7 @@ void loop() {
 				}
 				delay(10);
 				Serial.println();
+				delay(5);
 
 #endif			
             } // end of if (loopCount >= (SAMPLES_PER_SECOND - 1))                   
@@ -1004,13 +1018,27 @@ void initFileName(DateTime time1) {
 			// is finally false (i.e. you found a new file name to use).
 		} // end of if(!sd.exists())
 	} // end of file-naming for loop
+	//------------------------------------------------------------
 	// Write 1st header line to SD file based on mission info
 	if (serialValid) {
 		logfile.print(serialNumber);
+	} else {
+		logfile.print(F("No serial"));
+	}
+	// Write the contents of mcusr register to help with troubleshooting
+	logfile.print(F(",MCUSR:, "));
+	// Cycle through the contents of mcusr and print
+	// to the header as 1's and 0's
+	for(byte mask = 0x80; mask; mask >>= 1){
+		if(mask  & mcusr) {
+			logfile.print('1');
+		} else {
+			logfile.print('0');
+		}
 	}
 	// Print a bunch of commas in the first row to mark the 
 	// additional data columns
-	for (byte i = 0; i < 18; i++){
+	for (byte i = 0; i < 16; i++){
 		logfile.print(F(","));
 	}
 	logfile.println(); // move to 2nd row of file
