@@ -2,28 +2,33 @@ Copy the section between the hash marks below into a file called
 boards.txt that can be created in your Arduino/hardware folder. If that
 folder doesn't exist, go ahead and make it also. 
 
-##############################################################
-musseltracker2.name=Mussel Tracker2 (328P @ 8 MHz external, 3.3V ATmegaBOOT) 
+################################################################
+## Added by LPM 2015-06-11
+# For Arduino IDE v 1.6.4 or later
+# Tested successfully using Arduino as ISP programmer to burn
+# bootloader on Mussel Tracker v2.
+# Cut and paste this entry into your existing boards.txt file 
+# found inside the /hardware/arduino/avr/ directory. 
+# Select the MusselTracker v2 (8MHz internal clock) entry in the
+# Arduino IDE menu under Tools>Board>
 
-# I switched to stk500 protocol from 'arduino' protocol since it refused
-# to work for some reason the other way. 
-musseltracker2.upload.protocol=stk500
-musseltracker2.upload.maximum_size=30720
-musseltracker2.upload.speed=57600
+MusselTracker328.name=MusselTracker v2 (8 MHz internal clock)
+MusselTracker328.upload.tool=arduino:avrdude
+MusselTracker328.upload.protocol=arduino
+MusselTracker328.upload.maximum_size=30720
+MusselTracker328.upload.speed=57600
 
-musseltracker2.bootloader.low_fuses=0xFF
-musseltracker2.bootloader.high_fuses=0xDA
-musseltracker2.bootloader.extended_fuses=0x05
-musseltracker2.bootloader.path=atmega
-musseltracker2.bootloader.file=ATmegaBOOT_168_atmega328_pro_8MHz.hex
-musseltracker2.bootloader.unlock_bits=0x3F
-musseltracker2.bootloader.lock_bits=0x0F
+MusselTracker328.bootloader.low_fuses=0xE2
+MusselTracker328.bootloader.high_fuses=0xDA
+MusselTracker328.bootloader.extended_fuses=0x05 
 
-musseltracker2.build.mcu=atmega328p
-musseltracker2.build.f_cpu=8000000L
-musseltracker2.build.core=arduino
-musseltracker2.build.variant=standard
-
-
+MusselTracker328.bootloader.file=atmega/ATmegaBOOT_168_atmega328_pro_8MHz.hex
+MusselTracker328.bootloader.unlock_bits=0x3F
+MusselTracker328.bootloader.lock_bits=0x0F
+MusselTracker328.bootloader.tool=arduino:avrdude
+MusselTracker328.build.mcu=atmega328p
+MusselTracker328.build.f_cpu=8000000L
+MusselTracker328.build.core=arduino
+MusselTracker328.build.variant=standard 
 
 ##############################################################
