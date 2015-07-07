@@ -56,7 +56,7 @@
 
 // Comment out the following line to remove parts of the
 // test code from functioning. 
-// #define ECHO_TO_SERIAL // For testing serial output over FTDI adapter
+#define ECHO_TO_SERIAL // For testing serial output over FTDI adapter
 
 
 // ***** TYPE DEFINITIONS *****
@@ -488,7 +488,7 @@ void loop() {
 					Serial.print(accelcompass2Array[0][j]);
 					Serial.print(F("\t"));
 				}
-				delay(1);
+				delay(10);
 				Serial.println();
 
 #endif				
