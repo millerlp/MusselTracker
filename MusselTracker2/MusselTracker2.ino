@@ -156,6 +156,13 @@ byte longPressTime = 5; // seconds to hold button1 to register a long press
 byte pressCount = 0; // counter for number of button presses
 unsigned long prevMillis;	// counter for faster operations
 unsigned long newMillis;	// counter for faster operations
+// flags to mark when sensors go bad
+bool tc1fail = false;
+bool tc2fail = false;
+bool hall1fail = false;
+bool hall2fail = false;
+bool accel1fail = false;
+bool accel2fail = false;
 
 //---------------- setup loop ------------------------------------------------
 void setup() {
@@ -415,11 +422,13 @@ void loop() {
 				accelcompass1Array[loopCount][3] = accelcompass1.m.x;
 				accelcompass1Array[loopCount][4] = accelcompass1.m.y;
 				accelcompass1Array[loopCount][5] = accelcompass1.m.z;
+                                accel1fail = false;
 			} else {
 				// If a timeout occurred, write zeros to the array
 				for (byte j = 0; j < 6; j++){
 					accelcompass1Array[loopCount][j] = 0;
 				}
+                                accel1fail = true;
 			}
 			
 			if (!accelcompass2.timeoutOccurred()){
@@ -430,11 +439,13 @@ void loop() {
 				accelcompass2Array[loopCount][3] = accelcompass2.m.x;
 				accelcompass2Array[loopCount][4] = accelcompass2.m.y;
 				accelcompass2Array[loopCount][5] = accelcompass2.m.z;
+                                accel2fail = false;
 			} else {
 				for (byte j = 0; j < 6; j++){
 					// If a timeout occurred, write zeros to the array
 					accelcompass2Array[loopCount][j] = 0;
 				}
+                                accel2fail = true;
 			}
 
 			if (fracSec == 0) {
@@ -444,9 +455,23 @@ void loop() {
 				// them (and waking them) more than once per second.
 				temp1 = thermocouple1.readCelsius();
 				temp2 = thermocouple2.readCelsius();
+                                // Sanity check the thermocouple values
+                                if (temp1 < 0 | isnan(temp1) ){
+                                   tc1fail = true; 
+                                } else { tc1fail = false;}
+                                if (temp2 < 0 | isnan(temp2) ) {
+                                   tc2fail = true; 
+                                } else { tc2fail = false;}
 				// Take hall effect readings
 				hallVal1 = hallsensor.readHall(HALL1);
 				hallVal2 = hallsensor.readHall(HALL2);
+                                // Sanity check the hall effect values
+                                if (hallVal1 < 2) {
+                                   hall1fail = true; 
+                                } else { hall1fail = false;}
+                                if (hallVal2 < 2) {
+                                   hall2fail = true;
+                                } else { hall2fail = false;}
 			}
 			
 			// Now if loopCount is equal to the value in SAMPLES_PER_SECOND
@@ -491,8 +516,81 @@ void loop() {
 				delay(10);
 				Serial.println();
 
-#endif				
-			} // end of if (loopCount >= (SAMPLES_PER_SECOND - 1))
+#endif			
+                        } // end of if (loopCount >= (SAMPLES_PER_SECOND - 1))                   
+                        
+/*                        
+                        if (loopCount == 0) {	
+                          
+                          
+                          // Handle the various failure flags
+                          if (newtime.second() == 11) {
+                            // 1 flash for accel 1 failure
+                            if (accel1fail) {
+                               digitalWrite(ERRLED, HIGH);
+                                delay(10);
+                               digitalWrite(ERRLED, LOW); 
+                            }
+                          }
+                         
+                          if (newtime.second() == 16) {
+                            // 2 flashes for accel 2 failure
+                            if (accel2fail){
+                              for (byte i = 0; i < 2; i++) { 
+                                 digitalWrite(ERRLED, HIGH);
+                                 delay(10);
+                                 digitalWrite(ERRLED, LOW);
+                                 delay(30); 
+                              }
+                            }
+                          }
+                          if (newtime.second() == 21) {
+                            // 3 flashes for tc1 failure
+                            if (tc1fail) {
+                              for (byte i = 0; i < 3; i++) { 
+                               digitalWrite(ERRLED, HIGH);
+                               delay(10);
+                               digitalWrite(ERRLED, LOW);
+                               delay(30); 
+                              } 
+                            }
+                          }
+                          if (newtime.second() == 26) {
+                            // 4 flashes for tc2 failure
+                            if (tc2fail) {
+                              for (byte i = 0; i < 4; i++) { 
+                               digitalWrite(ERRLED, HIGH);
+                               delay(10);
+                               digitalWrite(ERRLED, LOW);
+                               delay(30); 
+                              }
+                            }
+                          }
+                          if (newtime.second() == 31) {
+                            // 5 flashes for hall1 failure
+                           if (hall1fail) {
+                              for (byte i = 0; i < 5; i++) { 
+                                 digitalWrite(ERRLED, HIGH);
+                                 delay(10);
+                                 digitalWrite(ERRLED, LOW);
+                                 delay(30); 
+                               }
+                             }
+                          }
+                          if (newtime.second() == 36) {
+                             if (hall2fail) {
+                               for (byte i = 0; i < 6; i++) { 
+                                 digitalWrite(ERRLED, HIGH);
+                                 delay(10);
+                                 digitalWrite(ERRLED, LOW);
+                                 delay(30); 
+                               }
+                             } 
+                          }
+                          
+                        } // end of if (loopCount == 0) 
+                       
+*/			
 			
 			// Increment loopCount after writing all the sample data to
 			// the arrays
