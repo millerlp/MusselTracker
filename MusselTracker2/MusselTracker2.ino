@@ -3,43 +3,62 @@
 	
   Code to run a MusselTracker v2 board with attached pairs of
   MAX31855 thermocouple sensors, Allegro A1393 hall effect
-  sensors, and LSM303D accelerometer/magnetometers. 
+  sensors, and LSM303D accelerometer/magnetometers. By default
+  this program will start running and saving data to the SD 
+  card automatically. 
   
-  Entering calibration mode:
-	1. Hold button 1 down for at least 3 seconds, but less than 5 seconds
-	2. Both red and green leds will flash 5 times when you enable 
-		calibration mode. 
-	3. You then have ~3 seconds to press button1 again
-		to choose whether to calibrate mussel 1 or 2. 
-	4. Pressing button1 repeatedly will cycle through 1 flash 
-		(mussel 1), 2 flashes (mussel 2) or a red flash (no mussel chosen). 
-	5. Once you've chosen the mussel, wait a few seconds for both red and
-		green LEDs to flash once. 
-	6. The green led will then slowly cycle on and off (1Hz) while it waits 
-		for you to get the mussel situated.
-	7. With the mussel situated facing north, press button1 briefly to 
-		enter the calibration data collection mode. 
-	8. When you have finished taking calibration data, press button1 again
-		to exit calibration mode and return to normal data collection mode. 
-		The red and green LEDs will flash 5 times to denote the end of 
-		calibration mode. 
+	Entering calibration mode:
+		1. Hold button 1 down for at least 3 seconds, but less than 5 seconds
+		2. Both red and green leds will flash 5 times when you enable 
+			calibration mode. 
+		3. You then have ~3 seconds to press button1 again
+			to choose whether to calibrate mussel 1 or 2. 
+		4. Pressing button1 repeatedly will cycle through 1 flash 
+			(mussel 1), 2 flashes (mussel 2) or a red flash (no mussel chosen). 
+		5. Once you've chosen the mussel, wait a few seconds for both red and
+			green LEDs to flash once. 
+		6. The green led will then slowly cycle on and off (1Hz) while it waits 
+			for you to get the mussel situated.
+		7. With the mussel situated facing north, press button1 briefly to 
+			enter the calibration data collection mode. 
+		8. When you have finished taking calibration data, press button1 again
+			to exit calibration mode and return to normal data collection mode. 
+			The red and green LEDs will flash 5 times to denote the end of 
+			calibration mode. 
 		
 	Closing a data file safely:
-	1. Hold button 1 down for at least 7 seconds, then release it
-	2. The green LED should flash rapidly 15 times. The previous data
-		file will be closed safely, and a new file will be started in
-		normal data collection mode. 
+		1. Hold button 1 down for at least 7 seconds, then release it.
+		2. The green LED should flash rapidly 15 times. The previous data
+			file will be closed safely, and a new file will be started in
+			normal data collection mode. 
   
-	Error codes:
+	Board error codes:
 		Red flashes quickly (10Hz): Real Time Clock not set
 		Red + Green alternate rapidly: SD card not found
+	
+	Sensor error codes:
+		At the top of every minute, the green LED will flash quickly 5
+		times. This lets the user know that error codes will follow 
+		during the following 6 seconds, one signal per second. 
+		As each second ticks by (1-6), the red error LED will light once 
+		if a sensor error code is set for that sensor. The ordering of the 6 potential flashes is:
+			1. Accelerometer/magnetometer 1
+			2. Accelerometer/magnetometer 2
+			3. Thermocouple 1
+			4. Thermocouple 2
+			5. Hall effect sensor 1
+			6. Hall effect sensor 2
+		You will need to count off the seconds in your head after you see 
+		the 5 quick green flashes to determine which error is being 
+		signaled. If there are no errors, the red error LED will not light 
+		during this time. 
 
 */
 
 #include "SdFat.h" // https://github.com/greiman/SdFat
-#include <Wire.h>
-#include <SPI.h>
-#include <EEPROM.h> // For reading the serial number stored in EEPROM
+#include <Wire.h>	// built in library, for I2C communications
+#include <SPI.h>	// built in library, for SPI communications
+#include <EEPROM.h> // built in library, for reading the serial number stored in EEPROM
 #include "RTClib.h" // https://github.com/millerlp/RTClib
 #include "Adafruit_MAX31855.h" // https://github.com/adafruit/Adafruit-MAX31855-library
 #include "LSM303.h" // https://github.com/pololu/lsm303-arduino
@@ -58,6 +77,9 @@
 // test code from functioning. 
 #define ECHO_TO_SERIAL // For testing serial output over FTDI adapter
 
+// Interval to flash green LED during normal data collection
+// For every 10 seconds, enter 10, for every 30 seconds, enter 30
+#define PULSE_INTERVAL 30
 
 // ***** TYPE DEFINITIONS *****
 typedef enum STATE
@@ -156,13 +178,17 @@ byte longPressTime = 5; // seconds to hold button1 to register a long press
 byte pressCount = 0; // counter for number of button presses
 unsigned long prevMillis;	// counter for faster operations
 unsigned long newMillis;	// counter for faster operations
-// flags to mark when sensors go bad
+// Flags to mark when sensors go bad
 bool tc1fail = false;
 bool tc2fail = false;
 bool hall1fail = false;
 bool hall2fail = false;
 bool accel1fail = false;
 bool accel2fail = false;
+// Define two temperature limits for the thermocouples, values outside
+// this range will trigger the error notification
+float TClowerlimit = 0.0;
+float TCupperlimit = 60.0;
 
 //---------------- setup loop ------------------------------------------------
 void setup() {
@@ -233,7 +259,7 @@ void setup() {
 
 //***************************************
 	// Initialize the accelerometer/compass
-	// For the LSM that has its sa0 pin pulled high (ACCEL1),
+	// For the LSM303D that has its sa0 pin pulled high (ACCEL1),
 	// use the arguments accelcompass1.init(LSM303::device_D, LSM303::sa0_high)
 	// to tell the initialization function to look for the correct device
 	// When a device type and sa0 pin state are defined, the init() function 
@@ -249,6 +275,11 @@ void setup() {
 	// the whole program without a timeout.
 	accelcompass1.setTimeout(20); 
 	accelcompass2.setTimeout(20);
+	
+	// Now set both accelerometers to sample based on the settings
+	// in the function accelNormalMode()
+	accelNormalMode(accelcompass1);
+	accelNormalMode(accelcompass2);
 
 //*************************************************************
 // SD card setup and read (assumes Serial output is functional already)
@@ -395,7 +426,7 @@ void loop() {
 	switch (mainState) {
 		//*****************************************************
 		case STATE_DATA:
-			bitSet(PIND, 4); // toggle off
+			// bitSet(PIND, 4); // toggle on, for monitoring on o-scope
 		
 			// Check to see if the current seconds value
 			// is equal to oldtime.second(). If so, we
@@ -406,6 +437,16 @@ void loop() {
 				fracSec = 0; // reset fracSec
 				oldtime = newtime; // update oldtime
 				loopCount = 0; // reset loopCount				
+			}
+			
+			// If it is the start of a new minute, flash the 
+			// green led each time through the loop. This is
+			// used to help the user look for error codes that
+			// flash at seconds 1,2,3,4,5, and 6. 
+			if (newtime.second() == 0) {
+				digitalWrite(GREENLED, HIGH);
+				delay(5);
+				digitalWrite(GREENLED, LOW);
 			}
 			
 			// Save current time to unixtimeArray
@@ -455,29 +496,87 @@ void loop() {
 				// them (and waking them) more than once per second.
 				temp1 = thermocouple1.readCelsius();
 				temp2 = thermocouple2.readCelsius();
-                                // Sanity check the thermocouple values
-                                if (temp1 < 0 | isnan(temp1) ){
-                                   tc1fail = true; 
-                                } else { tc1fail = false;}
-                                if (temp2 < 0 | isnan(temp2) ) {
-                                   tc2fail = true; 
-                                } else { tc2fail = false;}
+				// Sanity check the thermocouple values
+				if (temp1 < TClowerlimit | isnan(temp1) | temp1 > TCupperlimit){
+				   tc1fail = true; 
+				} else { tc1fail = false;}
+				if (temp2 < TClowerlimit | isnan(temp2) | temp2 > TCupperlimit) {
+				   tc2fail = true; 
+				} else { tc2fail = false;}
 				// Take hall effect readings
 				hallVal1 = hallsensor.readHall(HALL1);
 				hallVal2 = hallsensor.readHall(HALL2);
-                                // Sanity check the hall effect values
-                                if (hallVal1 < 2) {
-                                   hall1fail = true; 
-                                } else { hall1fail = false;}
-                                if (hallVal2 < 2) {
-                                   hall2fail = true;
-                                } else { hall2fail = false;}
-			}
-			
+				// Sanity check the hall effect values
+				// The pull-down resistors should keep the value
+				// at roughly zero if the hall sensor is not
+				// sending a signal. Normal functioning values
+				// should be near 512, varying with magnet proximity
+				if (hallVal1 < 2) {
+				   hall1fail = true; 
+				} else { hall1fail = false;}
+				if (hallVal2 < 2) {
+				   hall2fail = true;
+				} else { hall2fail = false;}
+								
+				// Handle the various failure flags
+				// In the if statements below, as each second rolls over
+				// the error LED will flash if that error code flag is
+				// true. Nothing will happen if the sensor error code 
+				// flag is false. 
+			    if (newtime.second() == 1) {
+				  // flash for accel 1 failure
+					if (accel1fail) {
+						digitalWrite(ERRLED, HIGH);
+						delay(5);
+						digitalWrite(ERRLED, LOW);
+					}
+				}			 
+				if (newtime.second() == 2) {
+					// flash for accel 2 failure
+					if (accel2fail){
+						 digitalWrite(ERRLED, HIGH);
+						 delay(5);
+						 digitalWrite(ERRLED, LOW);
+					}
+				}
+				if (newtime.second() == 3) {
+					// flash for thermocouple 1 failure
+					if (tc1fail) {
+					   digitalWrite(ERRLED, HIGH);
+					   delay(5);
+					   digitalWrite(ERRLED, LOW);
+					}
+				}
+				if (newtime.second() == 4) {
+					// flash for thermocouple 2 failure
+					if (tc2fail) {
+						digitalWrite(ERRLED, HIGH);
+						delay(5);
+						digitalWrite(ERRLED, LOW);
+					}
+				}
+				if (newtime.second() == 5) {
+					// flash for hall1 failure
+					if (hall1fail) {
+						digitalWrite(ERRLED, HIGH);
+						delay(5);
+						digitalWrite(ERRLED, LOW);
+					}
+				}
+				if (newtime.second() == 6) {
+					// flash for hall2 failure
+					if (hall2fail) {
+						digitalWrite(ERRLED, HIGH);
+						delay(5);
+						digitalWrite(ERRLED, LOW);
+					} 
+				}				
+			} 	// end of if (fracSec == 0)
+		
 			// Now if loopCount is equal to the value in SAMPLES_PER_SECOND
 			// (minus 1 for zero-based counting), then write out the contents
 			// of the sample data arrays to the SD card. This should write data
-			// every second
+			// every second.
 			if (loopCount >= (SAMPLES_PER_SECOND - 1)) {
 				// Check to see if a new day has started. If so, open a new file
 				// with the initFileName() function
@@ -494,6 +593,9 @@ void loop() {
 				writeToSD();
 				
 #ifdef ECHO_TO_SERIAL
+				// If ECHO_TO_SERIAL is defined at the start of the 
+				// program, then this section will send updates of the
+				// sensor values once per second.
 				printTimeSerial(oldtime);
 				Serial.print(F("\tTemp1: "));
 				Serial.print(temp1);
@@ -517,81 +619,9 @@ void loop() {
 				Serial.println();
 
 #endif			
-                        } // end of if (loopCount >= (SAMPLES_PER_SECOND - 1))                   
+            } // end of if (loopCount >= (SAMPLES_PER_SECOND - 1))                   
                         
-/*                        
-                        if (loopCount == 0) {	
-                          
-                          
-                          // Handle the various failure flags
-                          if (newtime.second() == 11) {
-                            // 1 flash for accel 1 failure
-                            if (accel1fail) {
-                               digitalWrite(ERRLED, HIGH);
-                                delay(10);
-                               digitalWrite(ERRLED, LOW); 
-                            }
-                          }
-                         
-                          if (newtime.second() == 16) {
-                            // 2 flashes for accel 2 failure
-                            if (accel2fail){
-                              for (byte i = 0; i < 2; i++) { 
-                                 digitalWrite(ERRLED, HIGH);
-                                 delay(10);
-                                 digitalWrite(ERRLED, LOW);
-                                 delay(30); 
-                              }
-                            }
-                          }
-                          if (newtime.second() == 21) {
-                            // 3 flashes for tc1 failure
-                            if (tc1fail) {
-                              for (byte i = 0; i < 3; i++) { 
-                               digitalWrite(ERRLED, HIGH);
-                               delay(10);
-                               digitalWrite(ERRLED, LOW);
-                               delay(30); 
-                              } 
-                            }
-                          }
-                          if (newtime.second() == 26) {
-                            // 4 flashes for tc2 failure
-                            if (tc2fail) {
-                              for (byte i = 0; i < 4; i++) { 
-                               digitalWrite(ERRLED, HIGH);
-                               delay(10);
-                               digitalWrite(ERRLED, LOW);
-                               delay(30); 
-                              }
-                            }
-                          }
-                          if (newtime.second() == 31) {
-                            // 5 flashes for hall1 failure
-                           if (hall1fail) {
-                              for (byte i = 0; i < 5; i++) { 
-                                 digitalWrite(ERRLED, HIGH);
-                                 delay(10);
-                                 digitalWrite(ERRLED, LOW);
-                                 delay(30); 
-                               }
-                             }
-                          }
-                          if (newtime.second() == 36) {
-                             if (hall2fail) {
-                               for (byte i = 0; i < 6; i++) { 
-                                 digitalWrite(ERRLED, HIGH);
-                                 delay(10);
-                                 digitalWrite(ERRLED, LOW);
-                                 delay(30); 
-                               }
-                             } 
-                          }
-                          
-                        } // end of if (loopCount == 0) 
-                       
-*/			
-			
+                        
 			// Increment loopCount after writing all the sample data to
 			// the arrays
 			loopCount++; 
@@ -604,18 +634,23 @@ void loop() {
 	#if SAMPLES_PER_SECOND == 2
 			fracSec = fracSec + 50;
 	#endif
-			bitSet(PIND, 4); // toggle off
-			delay(1);
-			bitSet(PIND, 3); // toggle on
+			// bitSet(PIND, 4); // toggle off, for monitoring on o-scope
+			// delay(1);
+			// bitSet(PIND, 3); // toggle on, for monitoring on o-scope
 			goToSleep(); // function in MusselTrackerlib.h	
-			bitSet(PIND, 3); // toggle off
-			// After awaking, this case should end and the main loop
+			// bitSet(PIND, 3); // toggle off, for monitoring on o-scope
+			// After waking, this case should end and the main loop
 			// should start again. 
 			mainState = STATE_DATA;
 		break; // end of case STATE_DATA
+		
 		//*****************************************************
 		case STATE_ENTER_CALIB:
-		
+			// We have arrived at this state because the user held button1 down
+			// for the specified amount of time (see the debounce cases earlier)
+			// so we now allow the user to enter additional button presses to 
+			// choose which accelerometer they want to calibrate. 
+			
 			// Read a time value
 			calibEnterTime = rtc.now();
 	
@@ -733,8 +768,10 @@ void loop() {
 				Serial.print(F("Writing to "));
 				Serial.println(filenameCalib);
 				if (pressCount == 1){
+					// Set accel1 to high-speed sampling mode
 					enableCalibMode(accelcompass1);
 				} else if (pressCount == 2) {
+					// Set accel2 to high-speed sampling mode
 					enableCalibMode(accelcompass2);
 				}
 			}
@@ -801,6 +838,8 @@ void loop() {
 			}
 			
 			// The user can press button1 again to end calibration mode
+			// This would set buttonFlag true, and cause the if statement
+			// below to execute
  			if (buttonFlag) {
 				buttonFlag = false;
 				calibfile.close(); // close and save the calib file
@@ -808,8 +847,10 @@ void loop() {
 				// Set the accel/magnetometer back to normal slow
 				// mode (50Hz accel with antialias filter, 6.25Hz magnetometer)
 				if (pressCount == 1){
+					// Reset accel1 to slower "normal" data collection mode
 					accelNormalMode(accelcompass1);
 				} else if (pressCount == 2) {
+					// Reset accel2 to slower "normal" data collection mode
 					accelNormalMode(accelcompass2);
 				}
 				initFileName(newtime); // open a new data file
@@ -850,6 +891,7 @@ void loop() {
 #endif		
 			mainState = STATE_DATA; // Return to normal data collection
 		break; // end of case STATE_FILE_CLOSE
+		
 	} // End of switch (mainState) statement
 } // end of main loop
 
@@ -1120,8 +1162,8 @@ void initCalibFile(DateTime time1) {
 // comma-separated value format.
 void writeToSD (void) {
 
-	// Flash the green LED every 10 seconds to show data is being collected
-	if (newtime.second() % 10 == 0) {
+	// Flash the green LED every 30 seconds to show data is being collected
+	if (newtime.second() % PULSE_INTERVAL == 0) {
 		digitalWrite(GREENLED,HIGH);
 		delay(5);
 		digitalWrite(GREENLED,LOW);
