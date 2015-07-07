@@ -35,6 +35,7 @@
 	Board error codes:
 		Red flashes quickly (10Hz): Real Time Clock not set
 		Red + Green alternate rapidly: SD card not found
+		Red flash every ~8 seconds: In brownout mode, data collection has stopped
 	
 	Sensor error codes:
 		At the top of every minute, the green LED will flash quickly 5
@@ -79,7 +80,7 @@
 
 // Interval to flash green LED during normal data collection
 // For every 10 seconds, enter 10, for every 30 seconds, enter 30
-#define PULSE_INTERVAL 5
+#define PULSE_INTERVAL 10
 
 // ***** TYPE DEFINITIONS *****
 typedef enum STATE
