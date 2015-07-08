@@ -292,8 +292,8 @@ void setup() {
 	
 	// Now set both accelerometers to sample based on the settings
 	// in the function accelNormalMode()
-	accelNormalMode(accelcompass1);
-	accelNormalMode(accelcompass2);
+	// accelNormalMode(accelcompass1);
+	// accelNormalMode(accelcompass2);
 
 //*************************************************************
 // SD card setup and read (assumes Serial output is functional already)
@@ -481,7 +481,7 @@ void loop() {
 			} else {
 				// If a timeout occurred, write zeros to the array
 				for (byte j = 0; j < 6; j++){
-					accelcompass1Array[loopCount][j] = 0;
+					accelcompass1Array[loopCount][j] = -9999;
 				}
                                 accel1fail = true;
 			}
@@ -498,7 +498,7 @@ void loop() {
 			} else {
 				for (byte j = 0; j < 6; j++){
 					// If a timeout occurred, write zeros to the array
-					accelcompass2Array[loopCount][j] = 0;
+					accelcompass2Array[loopCount][j] = -9999;
 				}
                                 accel2fail = true;
 			}
@@ -863,10 +863,12 @@ void loop() {
 				// mode (50Hz accel with antialias filter, 6.25Hz magnetometer)
 				if (pressCount == 1){
 					// Reset accel1 to slower "normal" data collection mode
-					accelNormalMode(accelcompass1);
+					accelcompass1.enableDefault();
+					// accelNormalMode(accelcompass1);
 				} else if (pressCount == 2) {
 					// Reset accel2 to slower "normal" data collection mode
-					accelNormalMode(accelcompass2);
+					accelcompass2.enableDefault();
+					// accelNormalMode(accelcompass2);
 				}
 				initFileName(newtime); // open a new data file
 				mainState = STATE_DATA; // return to STATE_DATA
