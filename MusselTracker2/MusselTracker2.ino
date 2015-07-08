@@ -213,6 +213,14 @@ void setup() {
 	pinMode(4, OUTPUT);
 	pinMode(3, OUTPUT);
 	
+	// Flash green LED to show that we just booted up
+	for (byte i = 0; i < 3; i++){
+		digitalWrite(GREENLED, HIGH);
+		delay(100);
+		digitalWrite(GREENLED, LOW);
+		delay(100);
+	}	
+	
 	// Brownout detection process.
 	mcusr = MCUSR; // Grab the contents of the MCUSR
 	MCUSR = 0; // Reset MCUSR to 0 so it is ready for the next go-around.
@@ -292,8 +300,8 @@ void setup() {
 	
 	// Now set both accelerometers to sample based on the settings
 	// in the function accelNormalMode()
-	// accelNormalMode(accelcompass1);
-	// accelNormalMode(accelcompass2);
+	accelNormalMode(accelcompass1);
+	accelNormalMode(accelcompass2);
 
 //*************************************************************
 // SD card setup and read (assumes Serial output is functional already)
@@ -863,12 +871,12 @@ void loop() {
 				// mode (50Hz accel with antialias filter, 6.25Hz magnetometer)
 				if (pressCount == 1){
 					// Reset accel1 to slower "normal" data collection mode
-					accelcompass1.enableDefault();
-					// accelNormalMode(accelcompass1);
+					// accelcompass1.enableDefault();
+					accelNormalMode(accelcompass1);
 				} else if (pressCount == 2) {
 					// Reset accel2 to slower "normal" data collection mode
-					accelcompass2.enableDefault();
-					// accelNormalMode(accelcompass2);
+					// accelcompass2.enableDefault();
+					accelNormalMode(accelcompass2);
 				}
 				initFileName(newtime); // open a new data file
 				mainState = STATE_DATA; // return to STATE_DATA
@@ -1264,24 +1272,29 @@ void enableCalibMode(LSM303& accelcompass){
 	// the device's settings. 
 	
 	// CTRL0: leave set to 0b0000 0000 to disable FIFO buffer
-	accelcompass.writeReg(0x1F, 0x00);
+	accelcompass.writeReg(LSM303::CTRL0, 0x00);
 	// CTRL1: set accel data rate to 400Hz
-	// 0b1000 0111 = 0x87
-	accelcompass.writeReg(0x20, 0x87);
-	// CTRL2: turn on 362Hz antialias filter for accelerometer
-	// and leave accel full-scale range and +/- 4g
-	// 0b1000 1000 = 0x88
-	accelcompass.writeReg(0x21, 0x88);
+	// 0b1000 0111 = 0x87 AODR = 400Hz, BDU = 0 (continuous), xyz axes enabled
+	// 0b0101 0111 = 0x57 AODR = 50Hz, BDU = 0 (continuous), xyz axes enabled
+	accelcompass.writeReg(LSM303::CTRL1, 0x87);
+	// CTRL2: leave accel full-scale range at +/- 4g
+	// 0b0000 1000 = 0x08, ABW = 773Hz anti alias bw, AFS = +/- 4g
+	// 0b1000 1000 = 0x88, ABW = 362Hz antialias bw, AFS = +/- 4g
+	// 0b1100 1000 = 0xC8, ABW = 50Hz antialias bw, AFS = +/- 4g
+	accelcompass.writeReg(LSM303::CTRL2, 0x88);
 	// CTRL6: set magnetic scale to +/- 4 gauss
 	// 0b0010 0000 = 0x20
-	accelcompass.writeReg(0x25, 0x20);
+	accelcompass.writeReg(LSM303::CTRL6, 0x20);
 	// CTRL7: set magnetic data low-power mode to 0 so that changes
 	// to CTRL5 have an effect
-	// 0b0010 0000 = 0x20
-	accelcompass.writeReg(0x26, 0x20);
+	// 0b0000 0000 = 0x00, AHPM = normal mode with xyz reset, AFDS = filter bypass, MPL = 0, MD = continuous mode
+	// 0b0010 0000 = 0x20, AHPM = normal mode with xyz reset, AFDS = filter on, MPL = 0, MD = continuous
+	// 0b1000 0000 = 0x80, AHPM = normal mode no reset, AFDS = filter bypass, MPL = 0, MD = continuous mode
+	// 0b1010 0000 = 0xA0, AHPM = normal mode no reset, AFDS = filter on, MPL = 0, MD = continuous
+	accelcompass.writeReg(LSM303::CTRL7, 0x00);
 	// CTRL5: set magnetometer data rate to 100Hz, high resolution mode
 	// 0b0111 0100 = 0x74
-	accelcompass.writeReg(0x24, 0x74);
+	accelcompass.writeReg(LSM303::CTRL5, 0x74);
 }
 
 //----------- accelNormalMode -------------------------------
@@ -1289,24 +1302,32 @@ void accelNormalMode(LSM303& accelcompass){
 	// Set the LSM303D accel/magnetometer to normal data-collection
 	// settings.
 	// CTRL0: leave set to 0b0000 0000 to disable FIFO buffer
-	accelcompass.writeReg(0x1F, 0x00);
+	accelcompass.writeReg(LSM303::CTRL0, 0x00);
 	// CTRL1: set accel data rate to 50Hz
-	// 0b0101 0111 = 0x57
-	accelcompass.writeReg(0x20, 0x57);	
-	// CTRL2: turn on 50Hz antialias filter for accelerometer
-	// and leave accel full-scale range and +/- 4g
-	// 0b1100 1000 = 0xC8
-	accelcompass.writeReg(0x21, 0xC8);
+	// 0b1000 0111 = 0x87 AODR = 400Hz, BDU = 0 (continuous), xyz axes enabled
+	// 0b0101 0111 = 0x57 AODR = 50Hz, BDU = 0 (continuous), xyz axes enabled
+	accelcompass.writeReg(LSM303::CTRL1, 0x57);	
+	// CTRL2: Set accel anti-alias filter bandwidth, leave accel full-scale range at +/- 4g
+	// 0b0000 1000 = 0x08, ABW = 773Hz anti alias bw, AFS = +/- 4g
+	// 0b1000 1000 = 0x88, ABW = 362Hz antialias bw, AFS = +/- 4g
+	// 0b1100 1000 = 0xC8, ABW = 50Hz antialias bw, AFS = +/- 4g
+	accelcompass.writeReg(LSM303::CTRL2, 0xC8);
 	// CTRL7: set magnetic data low-power mode to 0 so that changes
 	// to CTRL5 have an effect
-	// 0b0010 0000 = 0x20
-	accelcompass.writeReg(0x26, 0x20);
+	// 0b0000 0000 = 0x00, AHPM = normal mode with xyz reset, AFDS = filter bypass, MPL = 0, MD = continuous mode
+	// 0b0010 0000 = 0x20, AHPM = normal mode with xyz reset, AFDS = filter on, MPL = 0, MD = continuous
+	// 0b1000 0000 = 0x80, AHPM = normal mode no reset, AFDS = filter bypass, MPL = 0, MD = continuous mode
+	// 0b1010 0000 = 0xA0, AHPM = normal mode no reset, AFDS = filter on, MPL = 0, MD = continuous
+	accelcompass.writeReg(LSM303::CTRL7, 0x00);
 	// CTRL6: set magnetic scale to +/- 4 gauss
-	// 0b0010 0000 = 0x20
-	accelcompass.writeReg(0x25, 0x20);
-	// CTRL5: set magnetometer data rate to 100Hz, high resolution mode
+	// 0b0000 0000 = 0x00 MFS = +/- 2gauss
+	// 0b0010 0000 = 0x20 MFS = +/- 4gauss
+	// 0b0100 0000 = 0x40 MFS = +/- 8gauss
+	// 0b0110 0000 = 0x60 MFS = +/- 12gauss
+	accelcompass.writeReg(LSM303::CTRL6, 0x20);
+	// CTRL5: set magnetometer data rate to 6.25Hz, high resolution mode
 	// 0b0110 0100 = 0x64
-	accelcompass.writeReg(0x24, 0x64);
+	accelcompass.writeReg(LSM303::CTRL5, 0x64);
 }
 
 
