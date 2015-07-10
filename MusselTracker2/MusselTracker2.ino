@@ -190,7 +190,13 @@ bool accel2fail = false;
 // this range will trigger the error notification
 float TClowerlimit = 0.0;
 float TCupperlimit = 60.0;
-
+int aaFilterBW;		// store accelerometer anti-alias filter bandwidth
+byte accFullScale; 	// store accelerometer full scale range +/- g
+float accSens; 	// store accelerometer sensitivity (mg/LSB)
+int accDataRate;	// store accelerometer sample rate (not the same as datalogger sample rate)
+byte magFullScale;	// store magnetometer full scale range (gauss)
+float magSens;		// store magnetometer sensitivity (mgauss/LSB)
+float magDataRate;	// store magnetometer sample rate (not the same as datalogger sample rate)
 //---------------- setup loop ------------------------------------------------
 void setup() {
 	// Set button1 as an input
@@ -302,7 +308,10 @@ void setup() {
 	// in the function accelNormalMode()
 	accelNormalMode(accelcompass1);
 	accelNormalMode(accelcompass2);
-
+	delay(5);
+	// Read back the settings so they can be written to file headers
+	getaccelSettings(accelcompass1);
+	getaccelSettings(accelcompass2);
 //*************************************************************
 // SD card setup and read (assumes Serial output is functional already)
 	pinMode(chipSelect, OUTPUT);  // set chip select pin for SD card to output
@@ -793,9 +802,15 @@ void loop() {
 				if (pressCount == 1){
 					// Set accel1 to high-speed sampling mode
 					enableCalibMode(accelcompass1);
+					delay(5);
+					// Read back the settings
+					getaccelSettings(accelcompass1);
 				} else if (pressCount == 2) {
 					// Set accel2 to high-speed sampling mode
 					enableCalibMode(accelcompass2);
+					delay(5);
+					// Read back the settings
+					getaccelSettings(accelcompass2);
 				}
 			}
 			
@@ -873,10 +888,14 @@ void loop() {
 					// Reset accel1 to slower "normal" data collection mode
 					// accelcompass1.enableDefault();
 					accelNormalMode(accelcompass1);
+					delay(5);
+					getaccelSettings(accelcompass1);
 				} else if (pressCount == 2) {
 					// Reset accel2 to slower "normal" data collection mode
 					// accelcompass2.enableDefault();
 					accelNormalMode(accelcompass2);
+					delay(5);
+					getaccelSettings(accelcompass2);
 				}
 				initFileName(newtime); // open a new data file
 				mainState = STATE_DATA; // return to STATE_DATA
@@ -1047,11 +1066,26 @@ void initFileName(DateTime time1) {
 			logfile.print('0');
 		}
 	}
+	logfile.print(F(",accFullScale,"));
+	logfile.print(accFullScale);	// write accelerometer full-scale range
+	logfile.print(F(" g,accSens,")); 
+	logfile.print(accSens); // write accelerometer sensitivity
+	logfile.print(F(" milli-g/LSB,accDataRate,"));
+	logfile.print(accDataRate);
+	logfile.print(F(" Hz,aaFilterBW,"));
+	logfile.print(aaFilterBW);
+	logfile.print(F(" Hz,magFullScale,"));
+	logfile.print(magFullScale);
+	logfile.print(F(" gauss,magSens,"));
+	logfile.print(magSens);
+	logfile.print(F(" mgauss/LSB,magDataRate,"));
+	logfile.print(magDataRate);
+	logfile.print(F("Hz,,"));
 	// Print a bunch of commas in the first row to mark the 
 	// additional data columns
-	for (byte i = 0; i < 16; i++){
-		logfile.print(F(","));
-	}
+	// for (byte i = 0; i < 16; i++){
+		// logfile.print(F(","));
+	// }
 	logfile.println(); // move to 2nd row of file
 	// write a 2nd header line to the SD file
 	logfile.println(F("POSIXt,DateTime,fractional.Second,a1.x,a1.y,a1.z,m1.x,m1.y,m1.z,Temp1,Hall1,a2.x,a2.y,a2.z,m2.x,m2.y,m2.z,Temp2,Hall2"));
@@ -1175,11 +1209,12 @@ void initCalibFile(DateTime time1) {
 		calibfile.print(F("Accel 2"));
 	}
 	calibfile.print(F(","));
-	// Print a bunch of commas in the first row to mark the 
-	// additional data columns
-	for (byte i = 0; i < 3; i++){
-		calibfile.print(F(","));
-	}
+	
+	// SN00, Date+Time,Accel1, accFullScale, value, magFullScale, value
+	calibfile.print(F("accFullScale,"));
+	calibfile.print(accFullScale);
+	calibfile.print(F(" g, magFullScale,"));
+	calibfile.print(magFullScale);
 	calibfile.println(); // Move to 2nd row of file
 	// Write a 2nd header line to the SD file
 	calibfile.println(F("millis,a.x,a.y,a.z,m.x,m.y,m.z"));
@@ -1328,6 +1363,147 @@ void accelNormalMode(LSM303& accelcompass){
 	// CTRL5: set magnetometer data rate to 6.25Hz, high resolution mode
 	// 0b0110 0100 = 0x64
 	accelcompass.writeReg(LSM303::CTRL5, 0x64);
+}
+
+
+// ---------- getaccelSettings ----------------------
+// A function to read the CTRL registers of the LSM303D and assign 
+// values to a set of global variables to keep track of sample rates
+// and settings being used. These values could be written to an output
+// file
+// Values written are:
+//	aaFilterBW = accelerometer anti-alias filter bandwidth (low pass filter)
+//	accFullScale = accelerometer full scale range, units of g
+// 	accSens = accelerometer nominal sensitivity, milli-g per least significant bit
+//	accDataRate = accelerometer data rate, Hz
+//	magFullScale = magnetometer full scale range, units of gauss
+// 	magSens = magnetometer nominal sensitivity, milli-gauss per least significant bit
+//	magDataRate = magnetometer data rate, Hz
+void getaccelSettings(LSM303& accelcompass){
+	// Read CTRL2 register
+	byte ctrl = accelcompass.readReg(LSM303::CTRL2);
+	byte tempVar = ctrl & 0xC0; // Test 1st to bits of ctrl2 value
+	switch (tempVar){
+		case 0x00:
+			aaFilterBW = 773; // Hz
+		break;
+		case 0x40:
+			aaFilterBW = 194; // Hz
+		break;
+		case 0x80:
+			aaFilterBW = 362; // Hz
+		break;
+		case 0xC0:
+			aaFilterBW = 50; // Hz
+		break;
+	}
+	// Determine the accelerometer full-scale range (and sensitivity)
+	tempVar = ctrl & 0x38; // test bits 5,4,3 of ctrl2 value
+	switch (tempVar){
+		case 0x00:
+			accFullScale = 2; // +/- 2g
+			accSens = 0.61; 	// sensitivity = 0.061 mg/LSB
+		break;
+		case 0x08:
+			accFullScale = 4; // +/- 4g
+			accSens = 0.122; 	// sensitivity = 0.122 mg/LSB
+		break;
+		case 0x10:
+			accFullScale = 6; // +/- 6g
+			accSens = 0.183; 	// sensitivity = 0.183 mg/LSB
+		break;
+		case 0x18:
+			accFullScale = 8; // +/- 8g
+			accSens = 0.244; 	// sensitivity = 0.244 mg/LSB
+		break;
+		case 0x20:
+			accFullScale = 16; // +/- 16g
+			accSens = 0.732; 	// sensitivity = 0.732 mg/LSB
+		break;
+	}	// end of switch(tempVar) for CTRL2
+	ctrl = accelcompass.readReg(LSM303::CTRL1);
+	tempVar = ctrl & 0xF0;
+	switch (tempVar){
+		case 0x00:
+			accDataRate = 0;		// Hz (power-down mode)
+		break;
+		case 0x10:
+			accDataRate = 3.125; 	// Hz
+		break;
+		case 0x20:
+			accDataRate = 6.25; 	// Hz
+		break;
+		case 0x30:
+			accDataRate = 12.5;		// Hz
+		break;
+		case 0x40:
+			accDataRate = 25;		// Hz
+		break;
+		case 0x50:
+			accDataRate = 50;		// Hz
+		break;
+		case 0x60:
+			accDataRate = 100;		// Hz
+		break;
+		case 0x70:
+			accDataRate = 200;		// Hz
+		break;
+		case 0x80:
+			accDataRate = 400;		// Hz
+		break;
+		case 0x90:
+			accDataRate = 800;		// Hz
+		break;
+		case 0xA0:
+			accDataRate = 1600;		// Hz
+		break;
+		
+	} // end of switch(tempVar) for CTRL1
+	
+	// Read magnetometer full scale range from CTRL6
+	ctrl = accelcompass.readReg(LSM303::CTRL6);
+	tempVar = ctrl & 0x60;
+	switch (tempVar){
+		case 0x00:
+			magFullScale = 2;		// +/- 2 gauss
+			magSens = 0.080;		// sensitivity, mgauss/LSB
+		break;
+		case 0x20:
+			magFullScale = 4;		// +/- 4 gauss
+			magSens = 0.160;		// sensitivity, mgauss/LSB
+		break;
+		case 0x40:
+			magFullScale = 8;		// +/- 8 gauss
+			magSens = 0.320;		// sensitivity, mgauss/LSB
+		break;
+		case 0x60:
+			magFullScale = 12;		// +/- 12 gauss
+			magSens = 0.479;		// sensitivity, mgauss/LSB
+		break;
+	} // end of switch (tempVar) for CTRL6
+	
+	ctrl = accelcompass.readReg(LSM303::CTRL5);
+	tempVar = ctrl & 0x1C; // test the MODR bits 2:0
+	switch (tempVar){
+		case 0x00:
+			magDataRate = 3.125;	// Hz
+		break;
+		case 0x04:
+			magDataRate = 6.25;		// Hz
+		break;
+		case 0x08:
+			magDataRate = 12.5;		// Hz
+		break;
+		case 0x0C:
+			magDataRate = 25;		// Hz
+		break;
+		case 0x10:
+			magDataRate = 50;		// Hz
+		break;
+		case 0x14:
+			magDataRate = 100;		// Hz
+		break;
+	} // end of switch (tempVar) for CTRL5
 }
 
 
