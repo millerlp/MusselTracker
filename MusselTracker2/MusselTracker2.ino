@@ -350,6 +350,7 @@ void setup() {
 }
 
 void loop() {
+	delay(2); // trying this to quell bogus sd writes
 	// Always start the loop by checking the time
 	newtime = rtc.now(); // Grab the current time
 	
