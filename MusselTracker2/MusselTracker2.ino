@@ -549,7 +549,12 @@ void loop() {
 				if (hallVal2 < 2) {
 				   hall2fail = true;
 				} else { hall2fail = false;}
-								
+				if (hallVal1 < 0 | hallVal1 > 1023){
+					hallVal1 = -9999; // overwrite bad data with -9999
+				}
+				if (hallVal2 < 0 | hallVal1 > 1023) {
+					hallVal2 = -9999; // overwrite bad data with -9999
+				}
 				// Handle the various failure flags
 				// In the if statements below, as each second rolls over
 				// the error LED will flash if that error code flag is
