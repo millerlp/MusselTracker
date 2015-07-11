@@ -614,7 +614,7 @@ void loop() {
 			// (minus 1 for zero-based counting), then write out the contents
 			// of the sample data arrays to the SD card. This should write data
 			// every second.
-			if (loopCount >= (SAMPLES_PER_SECOND - 1)) {
+			if (loopCount == (SAMPLES_PER_SECOND - 1)) {
 				// Check to see if a new day has started. If so, open a new file
 				// with the initFileName() function
 				if (oldtime.day() != oldday) {
