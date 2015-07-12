@@ -1322,10 +1322,13 @@ void enableCalibMode(LSM303& accelcompass){
 	// 0b0000 1000 = 0x08, ABW = 773Hz anti alias bw, AFS = +/- 4g
 	// 0b1000 1000 = 0x88, ABW = 362Hz antialias bw, AFS = +/- 4g
 	// 0b1100 1000 = 0xC8, ABW = 50Hz antialias bw, AFS = +/- 4g
-	accelcompass.writeReg(LSM303::CTRL2, 0x88);
-	// CTRL6: set magnetic scale to +/- 4 gauss
-	// 0b0010 0000 = 0x20
-	accelcompass.writeReg(LSM303::CTRL6, 0x20);
+	accelcompass.writeReg(LSM303::CTRL2, 0xC8);
+	// CTRL6: set magnetic scale to +/- x gauss
+        // 0b0000 0000 = 0x00 MFS = +/- 2gauss
+	// 0b0010 0000 = 0x20 MFS = +/- 4gauss
+	// 0b0100 0000 = 0x40 MFS = +/- 8gauss
+	// 0b0110 0000 = 0x60 MFS = +/- 12gauss
+	accelcompass.writeReg(LSM303::CTRL6, 0x40);
 	// CTRL7: set magnetic data low-power mode to 0 so that changes
 	// to CTRL5 have an effect
 	// 0b0000 0000 = 0x00, AHPM = normal mode with xyz reset, AFDS = filter bypass, MPL = 0, MD = continuous mode
@@ -1360,12 +1363,12 @@ void accelNormalMode(LSM303& accelcompass){
 	// 0b1000 0000 = 0x80, AHPM = normal mode no reset, AFDS = filter bypass, MPL = 0, MD = continuous mode
 	// 0b1010 0000 = 0xA0, AHPM = normal mode no reset, AFDS = filter on, MPL = 0, MD = continuous
 	accelcompass.writeReg(LSM303::CTRL7, 0x00);
-	// CTRL6: set magnetic scale to +/- 4 gauss
+	// CTRL6: set magnetic scale to +/- x gauss
 	// 0b0000 0000 = 0x00 MFS = +/- 2gauss
 	// 0b0010 0000 = 0x20 MFS = +/- 4gauss
 	// 0b0100 0000 = 0x40 MFS = +/- 8gauss
 	// 0b0110 0000 = 0x60 MFS = +/- 12gauss
-	accelcompass.writeReg(LSM303::CTRL6, 0x20);
+	accelcompass.writeReg(LSM303::CTRL6, 0x40);
 	// CTRL5: set magnetometer data rate to 6.25Hz, high resolution mode
 	// 0b0110 0100 = 0x64
 	accelcompass.writeReg(LSM303::CTRL5, 0x64);
