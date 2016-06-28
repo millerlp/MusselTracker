@@ -154,6 +154,10 @@ byte fracSecArray[SAMPLES_PER_SECOND]; // store fracSec values temporarily
 int accelcompass1Array[SAMPLES_PER_SECOND][6]; // store accel/compass1 values
 int accelcompass2Array[SAMPLES_PER_SECOND][6]; // store accel/compass2 values
 
+int accMagCheck[4]; // store a value from each accel/mag sensor to compare to new values
+unsigned int accMagCheckCount[4]; // count up number of matches
+unsigned int maxRepeats = 120; // maximum number of accel/mag repeated values allowed before throwing error flag
+
 // Declare initial name for output files written to SD card
 char filename[] = "YYYYMMDD_HHMM_00_SN00.csv";
 // Define initial name of calibration file for accelerometers
@@ -496,6 +500,38 @@ void loop() {
 				accelcompass1Array[loopCount][4] = accelcompass1.m.y;
 				accelcompass1Array[loopCount][5] = accelcompass1.m.z;
                                 accel1fail = false;
+                                // Now check and see if this new reading is the exact
+                                // same as the previous reading(s). This only checks 
+                                // the x-axis of the accel + mag to save time/space
+                                if (accelcompass1.a.x == accMagCheck[0]) {
+                                  if (accMagCheckCount[0] <= maxRepeats){
+                                    accMagCheckCount[0]++; // increment the repeat counter
+                                  }
+                                } else {
+                                  // If there is not a match, update the accMagCheck array
+                                  // and reset the count for that channel to 0
+                                  accMagCheck[0] = accelcompass1.a.x;
+                                  accMagCheckCount[0] = 0;
+                                }
+                                // Check and see if the mag x-axis reading is the exact
+                                // same as the previous reading(s).
+                                if (accelcompass1.m.x == accMagCheck[1]) {
+                                  if (accMagCheckCount[1] <= maxRepeats){
+                                    accMagCheckCount[1]++; // increment the repeat counter
+                                  }
+                                } else {
+                                  // If there is not a match, update the accMagCheck array
+                                  // and reset the count for that channel to 0
+                                  accMagCheck[1] = accelcompass1.m.x;
+                                  accMagCheckCount[1] = 0;
+                                }
+                                // Now check if either the accel or mag channel has been
+                                // repeating the same exact value for longer than the
+                                // maxRepeats amount. If so, set the fail flag to true.
+                                if (accMagCheckCount[0] >= maxRepeats | accMagCheckCount[1] >= maxRepeats){
+                                   accel1fail = true; 
+                                }
+
 			} else {
 				// If a timeout occurred, write zeros to the array
 				for (byte j = 0; j < 6; j++){
@@ -513,6 +549,37 @@ void loop() {
 				accelcompass2Array[loopCount][4] = accelcompass2.m.y;
 				accelcompass2Array[loopCount][5] = accelcompass2.m.z;
                                 accel2fail = false;
+                                // Now check and see if this new reading is the exact
+                                // same as the previous reading(s). This only checks 
+                                // the x-axis of the accel + mag to save time/space
+                                if (accelcompass2.a.x == accMagCheck[2]) {
+                                  if (accMagCheckCount[2] <= maxRepeats){
+                                    accMagCheckCount[2]++; // increment the repeat counter
+                                  }
+                                } else {
+                                  // If there is not a match, update the accMagCheck array
+                                  // and reset the count for that channel to 0
+                                  accMagCheck[2] = accelcompass2.a.x;
+                                  accMagCheckCount[2] = 0;                                  
+                                }
+                                // Check and see if the mag x-axis reading is the exact
+                                // same as the previous reading(s).
+                                if (accelcompass2.m.x == accMagCheck[3]) {
+                                  if (accMagCheckCount[3] <= maxRepeats){
+                                    accMagCheckCount[3]++; // increment the repeat counter
+                                  }
+                                } else {
+                                  // If there is not a match, update the accMagCheck array
+                                  // and reset the count for that channel to 0
+                                  accMagCheck[3] = accelcompass2.m.x;
+                                  accMagCheckCount[3] = 0;
+                                }
+                                // Now check if either the accel or mag channel has been
+                                // repeating the same exact value for longer than the
+                                // maxRepeats amount. If so, set the fail flag to true.
+                                if (accMagCheckCount[2] >= maxRepeats | accMagCheckCount[3] >= maxRepeats){
+                                   accel2fail = true; 
+                                }
 			} else {
 				for (byte j = 0; j < 6; j++){
 					// If a timeout occurred, write zeros to the array
