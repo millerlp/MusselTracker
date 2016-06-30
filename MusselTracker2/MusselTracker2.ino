@@ -35,7 +35,9 @@
 	Board error codes:
 		Red flashes quickly (10Hz): Real Time Clock not set
 		Red + Green alternate rapidly: SD card not found
+                Red permanently on: SD card not found after data collection started
 		Red flash every ~8 seconds: In brownout mode, data collection has stopped
+
 	
 	Sensor error codes:
 		At the top of every minute, the green LED will flash quickly 5
