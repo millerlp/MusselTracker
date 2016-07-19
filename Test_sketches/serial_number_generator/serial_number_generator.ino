@@ -20,7 +20,7 @@
 
 
 // serial number to write to chip
-char serialnumber[]="SN03";
+char serialnumber[]="SN11";
 
 void setup(){
 	Serial.begin(57600);
