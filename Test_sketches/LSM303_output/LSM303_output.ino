@@ -39,5 +39,5 @@ void loop()
     compass.m.x, compass.m.y, compass.m.z);
   Serial.println(report);
 
-  delay(100);
+  delay(50);
 }
