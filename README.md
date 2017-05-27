@@ -1,4 +1,4 @@
-This repository contains hardware designs and software to create a low-cost datalogger that can be used to track mussel behavior and temperature over long periods of time. The basic design includes a thermocouple temperature sensor, a hall effect magnetic sensor to sense valve gape, and a 3-D acclerometer/magnetometer to record mussel shell orientation.
+This repository contains hardware designs and software to create a low-cost datalogger that can be used to track mussel (bivalve molluscs, not muscles) behavior  and temperature over long periods of time. The basic design includes a thermocouple temperature sensor, a hall effect magnetic sensor to sense valve gape, and a 3-D acclerometer/magnetometer to record mussel shell orientation.
 
 Arduino-style code to run the datalogger is available the MusselTracker2 directory. The code requires the use of the MusselTrackerlib library available separately at https://github.com/millerlp/MusselTrackerlib 
 
