@@ -10,7 +10,7 @@ Circuit board designs are available in the Eagle_files directory.
 Orginally a fork of https://github.com/andrewpetersen/MusselTracker/, now with a wholesale rewrite of the software and hardware. 
 
 ******************
-Copyright Luke Miller 2015
+    Copyright Luke Miller 2015
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
